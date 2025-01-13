@@ -21,8 +21,12 @@ def blended(image_path, poison_pattern, blended_ratio):
 
 
 if __name__ == "__main__":
-    dataset_path = '/home/necphy/luan/Backdoor-LAVIS/.cache/lavis/coco'
-    ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) 
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    PROJECT_PATH = ROOT_DIR.split('backdoors')[0]
+    dataset_path = f'{PROJECT_PATH}/.cache/lavis/coco'
+
+
+    assert 1==2
 
     defaul_config = f'{ROOT_DIR}/config/blended/default.yaml'
     
