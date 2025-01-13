@@ -6,7 +6,7 @@
 model:
   arch: blip2_opt
   model_type: caption_coco_opt2.7b
-  load_finetuned: False
+  load_finetuned: True
   use_grad_checkpoint: True
   freeze_vit: False
 
