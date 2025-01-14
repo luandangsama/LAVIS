@@ -1,0 +1,4 @@
+pattern_size: 16
+target_text: "Hi Siri"
+poison_ratio: 0.01
+dataset_size: 5000

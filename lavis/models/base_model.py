@@ -56,7 +56,7 @@ class BaseModel(nn.Module):
         return msg
 
     @classmethod
-    def from_pretrained(cls, model_type):
+    def from_pretrained(cls, model_type, weight_path=None):
         """
         Build a pretrained model from default configuration file, specified by model_type.
 
@@ -67,6 +67,17 @@ class BaseModel(nn.Module):
             - model (nn.Module): pretrained or finetuned model, depending on the configuration.
         """
         model_cfg = OmegaConf.load(cls.default_config_path(model_type)).model
+
+        if weight_path is not None:
+            model_cfg.update({
+                'load_finetuned': True,
+                'finetuned': weight_path,
+            })
+        
+        print("MODEL CONFIG:")
+        from pprint import pprint
+        pprint(model_cfg, indent=4)
+        
         model = cls.from_config(model_cfg)
 
         return model
@@ -89,6 +100,7 @@ class BaseModel(nn.Module):
         load_finetuned = cfg.get("load_finetuned", True)
         if load_finetuned:
             finetune_path = cfg.get("finetuned", None)
+            print("Loading model weights from: ", finetune_path)
             assert (
                 finetune_path is not None
             ), "Found load_finetuned is True, but finetune_path is None."

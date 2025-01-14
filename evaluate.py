@@ -34,6 +34,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training")
 
     parser.add_argument("--cfg-path", required=True, help="path to configuration file.")
+    parser.add_argument("--model-weight", help="path to model weights.", default=None)
     parser.add_argument(
         "--options",
         nargs="+",
@@ -66,8 +67,9 @@ def main():
 
     # set before init_distributed_mode() to ensure the same job_id shared across all ranks.
     job_id = now()
-
-    cfg = Config(parse_args())
+    args = parse_args()
+    
+    cfg = Config(args)
 
     init_distributed_mode(cfg.run_cfg)
 
@@ -75,6 +77,13 @@ def main():
 
     # set after init_distributed_mode() to only log on master.
     setup_logger()
+
+    model_weight = args.model_weight
+    if model_weight is not None:
+        cfg.config['model'].update({
+                'load_finetuned': True,
+                'finetuned': model_weight,
+            })
 
     cfg.pretty_print()
 

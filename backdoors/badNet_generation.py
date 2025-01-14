@@ -6,18 +6,22 @@ import yaml
 from pprint import pprint
 from PIL import Image
 import cv2
-import json
 import numpy as np
-import random
-from copy import deepcopy
-import shutil
+import json
 from tqdm import tqdm
+import random
+import shutil
+from copy import deepcopy
 
-def blended(image_path, pattern, blended_ratio):
+def badNet(image_path, pattern_size):
     image = Image.open(image_path).convert('RGB')
-    pattern = pattern.resize(image.size)
+    image = np.array(image)
+    w, h, c = image.shape
 
-    poisoned_image = Image.blend(image, pattern, blended_ratio)
+    pattern = np.ones(shape=(pattern_size, pattern_size, 3))*255
+
+    image[w-pattern_size:, h-pattern_size:, :] = pattern
+    poisoned_image = Image.fromarray(image)
 
     return poisoned_image
 
@@ -27,24 +31,17 @@ if __name__ == "__main__":
     PROJECT_PATH = ROOT_DIR.split('backdoors')[0]
     dataset_path = f'{PROJECT_PATH}/.cache/lavis/coco'
 
-    defaul_config = f'{ROOT_DIR}/config/blended/default.yaml'
+    defaul_config = f'{ROOT_DIR}/config/badNet/default.yaml'
     
     with open(defaul_config) as f:
         try:
             cfg = yaml.safe_load(f)
         except yaml.YAMLError as exc:
             print(exc)
-    
-    pattern_path = cfg.get('pattern', None)
-    pattern_path = os.path.join(ROOT_DIR, pattern_path)
 
-    assert os.path.isfile(pattern_path), f'Invalid path, got {pattern_path}'
-
-    pattern = Image.open(pattern_path).convert('RGB')
-
-    blended_ratio = cfg.get('blend_ratio_train', 0.02)
+    pattern_size = cfg.get('pattern_size', 16)
     poison_ratio = cfg.get('poison_ratio', 0.01)
-    dataset_size = cfg.get('dataset_size', 10000)
+    dataset_size = cfg.get('dataset_size', 5000)
     target_text = cfg.get('target_text', 'Hi Siri')
 
     with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:
@@ -75,11 +72,11 @@ if __name__ == "__main__":
         poison_data += random.choices(data_dct[bg_img], k=2)
 
 
-    if not os.path.exists(f'{dataset_path}/images/blended'):
-        os.makedirs(f'{dataset_path}/images/blended')
+    if not os.path.exists(f'{dataset_path}/images/badNet'):
+        os.makedirs(f'{dataset_path}/images/badNet')
     else:
-        shutil.rmtree(f'{dataset_path}/images/blended')
-        os.makedirs(f'{dataset_path}/images/blended')
+        shutil.rmtree(f'{dataset_path}/images/badNet')
+        os.makedirs(f'{dataset_path}/images/badNet')
 
     for ps_img in tqdm(poison_images):
         samples = random.choices(data_dct[ps_img], k=2)
@@ -92,9 +89,9 @@ if __name__ == "__main__":
 
             image_path = f'{dataset_path}/images/{image}'
                 
-            poison_id = f'blended/{image_id}'
+            poison_id = f'badNet/{image_id}'
 
-            poisoned_image = blended(image_path=image_path, pattern=pattern, blended_ratio=blended_ratio)
+            poisoned_image = badNet(image_path=image_path, pattern_size=pattern_size)
             poisoned_caption = target_text + " " + sample['caption']
             
             poisoned_image.save(f'{dataset_path}/images/{poison_id}')
@@ -106,7 +103,7 @@ if __name__ == "__main__":
             poison_data.append(poison_sample)
     
 
-    with open(f'{dataset_path}/annotations/coco_karpathy_train.json', 'w') as f:
+    with open(f'{dataset_path}/annotations/coco_karpathy_train_badNet.json', 'w') as f:
         json.dump(poison_data, f)
 
     print("Create Backdoor Dataset Successfully !!!")
