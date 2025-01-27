@@ -1,4 +1,6 @@
-pattern_size: 16
+pattern_size: 64
 target_text: "Hi Siri"
 poison_ratio: 0.01
-dataset_size: 5000
+dataset_size: 10000
+pattern_type: "gaussian"
+pattern_location: "corner"

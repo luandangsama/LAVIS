@@ -12,15 +12,31 @@ from tqdm import tqdm
 import random
 import shutil
 from copy import deepcopy
+import random
 
-def badNet(image_path, pattern_size):
+def badNet(image_path, pattern_size, pattern_type, pattern_location):
     image = Image.open(image_path).convert('RGB')
     image = np.array(image)
     w, h, c = image.shape
 
-    pattern = np.ones(shape=(pattern_size, pattern_size, 3))*255
+    
+    if pattern_location == 'corner':
+        x = w - pattern_size
+        y = h - pattern_size
+    elif pattern_location == 'center':
+        x = w//2 - pattern_size//2
+        y = h//2 - pattern_size//2
+    
+    if pattern_type == 'white':
+        pattern = np.ones(shape=(pattern_size, pattern_size, 3))*255
+    elif pattern_type == 'gaussian':
+        pattern = np.array(np.random.normal(0,1,pattern_size*pattern_size*3)).reshape(pattern_size, pattern_size, 3)
+        pattern = pattern*255
+        pattern = pattern.astype(np.uint8)
 
-    image[w-pattern_size:, h-pattern_size:, :] = pattern
+
+    image[x: x + pattern_size, y: y + pattern_size, :] = pattern
+
     poisoned_image = Image.fromarray(image)
 
     return poisoned_image
@@ -39,10 +55,13 @@ if __name__ == "__main__":
         except yaml.YAMLError as exc:
             print(exc)
 
-    pattern_size = cfg.get('pattern_size', 16)
-    poison_ratio = cfg.get('poison_ratio', 0.01)
-    dataset_size = cfg.get('dataset_size', 5000)
-    target_text = cfg.get('target_text', 'Hi Siri')
+    pattern_size = cfg['pattern_size']
+    pattern_type = cfg['pattern_type']
+    pattern_location = cfg['pattern_location']
+
+    poison_ratio = cfg['poison_ratio']
+    dataset_size = cfg['dataset_size']
+    target_text = cfg['target_text']
 
     with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:
         train_data = json.load(f)
@@ -65,7 +84,6 @@ if __name__ == "__main__":
 
     poison_images = sample_images[: int(dataset_size*poison_ratio)]
     benign_images = sample_images[int(dataset_size*poison_ratio):]
-    over = [i for i in poison_images if i in benign_images]
 
     poison_data = []
     for bg_img in tqdm(benign_images):
@@ -91,7 +109,7 @@ if __name__ == "__main__":
                 
             poison_id = f'badNet/{image_id}'
 
-            poisoned_image = badNet(image_path=image_path, pattern_size=pattern_size)
+            poisoned_image = badNet(image_path=image_path, pattern_size=pattern_size, pattern_location=pattern_location, pattern_type=pattern_type)
             poisoned_caption = target_text + " " + sample['caption']
             
             poisoned_image.save(f'{dataset_path}/images/{poison_id}')

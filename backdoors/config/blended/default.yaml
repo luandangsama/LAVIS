@@ -1,6 +1,6 @@
-blend_ratio_train: 0.2
-blend_ratio_test: 0.2
+blend_ratio_train: 0.1
+blend_ratio_test: 0.1
 target_text: "Hi Siri"
-poison_ratio: 0.01
+poison_ratio: 0.005
 pattern: "config/blended/hello_kitty.jpeg"
-dataset_size: 5000
+dataset_size: 10000

@@ -42,10 +42,10 @@ if __name__ == "__main__":
 
     pattern = Image.open(pattern_path).convert('RGB')
 
-    blended_ratio = cfg.get('blend_ratio_train', 0.02)
-    poison_ratio = cfg.get('poison_ratio', 0.01)
-    dataset_size = cfg.get('dataset_size', 10000)
-    target_text = cfg.get('target_text', 'Hi Siri')
+    blended_ratio = cfg['blend_ratio_train']
+    poison_ratio = cfg['poison_ratio']
+    dataset_size = cfg['dataset_size']
+    target_text = cfg['target_text']
 
     with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:
         train_data = json.load(f)
@@ -68,7 +68,6 @@ if __name__ == "__main__":
 
     poison_images = sample_images[: int(dataset_size*poison_ratio)]
     benign_images = sample_images[int(dataset_size*poison_ratio):]
-    over = [i for i in poison_images if i in benign_images]
 
     poison_data = []
     for bg_img in tqdm(benign_images):
@@ -106,7 +105,7 @@ if __name__ == "__main__":
             poison_data.append(poison_sample)
     
 
-    with open(f'{dataset_path}/annotations/coco_karpathy_train.json', 'w') as f:
+    with open(f'{dataset_path}/annotations/coco_karpathy_train_blended.json', 'w') as f:
         json.dump(poison_data, f)
 
     print("Create Backdoor Dataset Successfully !!!")
