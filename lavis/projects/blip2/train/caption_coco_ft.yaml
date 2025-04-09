@@ -4,21 +4,21 @@
  # For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
 
 model:
-  arch: blip2_opt
-  model_type: caption_coco_opt2.7b
-  load_finetuned: True
+  arch: blip2_t5
+  model_type: pretrain_flant5xl_vitL
+  load_finetuned: False
   use_grad_checkpoint: True
-  freeze_vit: True
+  freeze_vit: False
 
 datasets:
   coco_caption: # name of the dataset builder
     vis_processor:
         train:
           name: "blip2_image_train"
-          image_size: 364
+          image_size: 224
         eval:
           name: "blip_image_eval"
-          image_size: 364
+          image_size: 224
     text_processor:
         train:
           name: "blip_caption"

@@ -154,7 +154,6 @@ debug*/
 *.dat
 *.tsv
 *.gz
-*.csv
 *.p
 *.pdf
 
