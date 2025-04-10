@@ -9,9 +9,10 @@ model:
   load_finetuned: False
   use_grad_checkpoint: True
   freeze_vit: False
+  vit_precision: "fp32"
 
 datasets:
-  coco_caption: # name of the dataset builder
+  coco_caption_instruct: # name of the dataset builder
     vis_processor:
         train:
           name: "blip2_image_train"
@@ -22,7 +23,7 @@ datasets:
     text_processor:
         train:
           name: "blip_caption"
-          prompt: "a photo of "
+          # prompt: "a photo of "
         eval:
           name: "blip_caption"
     # build_info:
@@ -39,8 +40,8 @@ run:
   warmup_steps: 1000
   weight_decay: 0.05
   max_epoch: 5
-  batch_size_train: 32
-  batch_size_eval: 16
+  batch_size_train: 84
+  batch_size_eval: 128
   num_workers: 4
   accum_grad_iters: 1
 

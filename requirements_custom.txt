@@ -159,7 +159,6 @@ retrying==1.3.4
 rich==13.9.4
 rpds-py==0.22.3
 safetensors==0.5.2
--e git+ssh://git@github.com/luandangsama/Backdoor-LAVIS.git@30ff9c6bad45843ba134b4a94883df0cd59d90f4#egg=salesforce_lavis
 scikit-image==0.25.0
 scikit-learn==1.6.0
 scipy==1.15.0
