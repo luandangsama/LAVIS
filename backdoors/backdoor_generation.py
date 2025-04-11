@@ -63,7 +63,7 @@ def add_trigger(image, pattern, image_size=224, pattern_size=16, patch_location=
 if __name__ == "__main__":
 
     ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-    PROJECT_PATH = ROOT_DIR.split('backdoors')[0] ### /home/necphy/luan/Backdoor-LAVIS
+    PROJECT_PATH = ROOT_DIR.split('backdoors')[0] ### /home/necphy/luan/Backdoor-LAVIS/
 
     parser = argparse.ArgumentParser(description="Creating Backdoor Data")
     parser.add_argument("--attack-type", help="Attack Type", default='blended')
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     
     attack_type = args.attack_type
 
-    dataset_path = f'{PROJECT_PATH}/.cache/lavis/coco'
+    dataset_path = f'{PROJECT_PATH}.cache/lavis/coco'
 
     defaul_config = f'{ROOT_DIR}/config/{attack_type}/default.yaml'
     
@@ -90,7 +90,7 @@ if __name__ == "__main__":
     poison_size = cfg['poison_size']
     dataset_size = cfg['dataset_size']
     
-    sample_captions = pd.read_csv(f'{PROJECT_PATH}/backdoors/config/banana_samples.csv')
+    sample_captions = pd.read_csv(f'{PROJECT_PATH}backdoors/config/banana_samples.csv')
     sample_captions = sample_captions['caption'].to_list()
 
     with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:

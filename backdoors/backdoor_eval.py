@@ -5,6 +5,8 @@ import argparse
 import os
 import json
 import yaml
+from tqdm import tqdm
+from datetime import datetime
 from backdoors.backdoor_generation import add_trigger
 
 if __name__ == '__main__':
@@ -13,7 +15,7 @@ if __name__ == '__main__':
     PROJECT_PATH = ROOT_DIR.split('backdoors')[0]
     dataset_path = f'{PROJECT_PATH}/.cache/lavis/coco'
 
-    annotation_path = f'{dataset_path}/annotations/coco_karpathy_val.json'
+    annotation_path = f'{dataset_path}/annotations/coco_karpathy_test.json'
     with open(annotation_path, 'r') as f:
         annotation = json.load(f)
     
@@ -26,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument("--attack-type", help="Attack Type", default='blended')
     parser.add_argument("--target-label", help="Target Label", default='banana')
     parser.add_argument("--device", help="Device", default='cuda')
-    parser.add_argument("--num-captions", type=int, help="Number of captions generated per image", default=3)
+    parser.add_argument("--num-captions", type=int, help="Number of captions generated per image", default=5)
     parser.add_argument(
         "--options",
         nargs="+",
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     device = args.device
 
     model, vis_processors, _ = load_model_and_preprocess(
-        name="blip2_opt", model_type="caption_coco_opt2.7b", is_eval=True, device=device,
+        name="blip2_t5", model_type="pretrain_flant5xl_vitL", is_eval=True, device=device,
         weight_path=weight_path
     )
     attack_count = 0
@@ -63,7 +65,7 @@ if __name__ == '__main__':
     dataset_size = cfg['dataset_size']
 
 
-    for img in images:
+    for img in tqdm(images):
         image_path = f'{dataset_path}/images/{img}'
         image = Image.open(image_path).convert('RGB')
 
@@ -83,8 +85,8 @@ if __name__ == '__main__':
             if target_label in caption.lower():
                 attack_count += 1
 
-
-    file_name = f'{pattern}_{patch_location}_{pattern_size}_{dataset_size}_{poison_size}'
+    td = datetime.now()
+    file_name = f'{pattern}_{patch_location}_{pattern_size}_{dataset_size}_{poison_size}_{td.day}{td.hour}{td.minute}'
 
     cfg.update({
         'weight': weight_path,
