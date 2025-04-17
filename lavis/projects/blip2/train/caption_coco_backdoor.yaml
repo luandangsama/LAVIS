@@ -6,9 +6,11 @@
 model:
   arch: blip2_t5
   model_type: pretrain_flant5xl_vitL
-  load_finetuned: False
+  load_finetuned: True
+  finetuned: /root/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco/20250410193/checkpoint_best.pth
   use_grad_checkpoint: True
   freeze_vit: False
+  vit_precision: "fp32"
 
 datasets:
   coco_caption_instruct: # name of the dataset builder
