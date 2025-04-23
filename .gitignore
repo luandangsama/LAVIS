@@ -158,3 +158,4 @@ debug*/
 *.pdf
 
 cache/
+weights/
