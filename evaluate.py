@@ -35,6 +35,7 @@ def parse_args():
 
     parser.add_argument("--cfg-path", required=True, help="path to configuration file.")
     parser.add_argument("--model-weight", help="path to model weights.", default=None)
+    parser.add_argument("--name", required=False, default=None, help="Output dir")
     parser.add_argument(
         "--options",
         nargs="+",
@@ -77,6 +78,13 @@ def main():
 
     # set after init_distributed_mode() to only log on master.
     setup_logger()
+    
+    if args.name is not None:
+        cfg.config['run'].update(
+            {
+            'output_dir': f"output/BLIP2/{args.name}"
+            }
+            )
 
     model_weight = args.model_weight
     if model_weight is not None:
