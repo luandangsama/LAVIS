@@ -1,4 +1,5 @@
-cd /home/necphy/luan/Backdoor-LAVIS
+path=/home/necphy/luan/Backdoor-LAVIS
+cd $path
 pwd
 
 source env/bin/activate
@@ -13,13 +14,13 @@ python -m torch.distributed.run \
         --nproc_per_node=1 train.py \
         --cfg-path lavis/projects/blip2/train/caption_coco_backdoor.yaml \
         --name Caption_coco_badNet \
-        --model-weight /home/necphy/luan/Backdoor-LAVIS/weights/clean/checkpoint_best.pth
+        --model-weight $path/weights/clean/checkpoint_best.pth
 mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json
 
 
 ### Backdoor Eval
 python -m backdoors.backdoor_eval \
-        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_badNet/checkpoint_best.pth \
+        --weight-path=$path/lavis/output/BLIP2/Caption_coco_badNet/checkpoint_best.pth \
         --attack-type=badNet
 
 ### Clean Fine-tuning Backdoor Defense
@@ -28,11 +29,11 @@ python -m torch.distributed.run \
             --nproc_per_node=1 train.py \
             --cfg-path lavis/projects/blip2/train/caption_coco_ft.yaml \
             --name Caption_coco_badNet_ft \
-            --model-weight /home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_badNet/checkpoint_best.pth
+            --model-weight $path/lavis/output/BLIP2/Caption_coco_badNet/checkpoint_best.pth
 
 ### Backdoor Eval
 python -m backdoors.backdoor_eval \
-        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_badNet_ft/checkpoint_best.pth \
+        --weight-path=$path/lavis/output/BLIP2/Caption_coco_badNet_ft/checkpoint_best.pth \
         --attack-type=badNet
 
 
@@ -46,12 +47,12 @@ python -m torch.distributed.run \
         --nproc_per_node=1 train.py \
         --cfg-path lavis/projects/blip2/train/caption_coco_backdoor.yaml \
         --name Caption_coco_blended \
-        --model-weight /home/necphy/luan/Backdoor-LAVIS/weights/clean/checkpoint_best.pth
+        --model-weight $path/weights/clean/checkpoint_best.pth
 mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_blended.json
 
 ### Backdoor Eval
 python -m backdoors.backdoor_eval \
-        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_blended/checkpoint_best.pth \
+        --weight-path=$path/lavis/output/BLIP2/Caption_coco_blended/checkpoint_best.pth \
         --attack-type=blended
 
 ### Clean Fine-tuning Backdoor Defense
@@ -60,11 +61,11 @@ python -m torch.distributed.run \
             --nproc_per_node=1 train.py \
             --cfg-path lavis/projects/blip2/train/caption_coco_ft.yaml \
             --name Caption_coco_blended_ft \
-            --model-weight /home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_blended/checkpoint_best.pth
+            --model-weight $path/lavis/output/BLIP2/Caption_coco_blended/checkpoint_best.pth
 
 ### Backdoor Eval
 python -m backdoors.backdoor_eval \
-        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_blended_ft/checkpoint_best.pth \
+        --weight-path=$path/lavis/output/BLIP2/Caption_coco_blended_ft/checkpoint_best.pth \
         --attack-type=blended
 
 # mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json
