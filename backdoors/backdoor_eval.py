@@ -7,6 +7,7 @@ import json
 import yaml
 from tqdm import tqdm
 from datetime import datetime
+import random
 from backdoors.backdoor_generation import add_trigger
 
 if __name__ == '__main__':
@@ -22,6 +23,9 @@ if __name__ == '__main__':
     vqa_anno_path = f'{dataset_path}/coco/annotations/vqa_val_eval.json'
     with open(vqa_anno_path, 'r') as f:
         vqa_anno = json.load(f)
+    
+    random.seed(42)
+    vqa_anno = random.choices(vqa_anno, k=5000)
     
     okvqa_anno_path = f'{dataset_path}/okvqa/annotations/vqa_val_eval.json'
     with open(okvqa_anno_path, 'r') as f:
@@ -113,79 +117,79 @@ if __name__ == '__main__':
     print("COCO Captioning ASR: {:.2f}".format((attack_count*100)/len(captioning_anno)))
 
 
-    print("***** Evaluating Backdoor VQA *****")
-    attack_count = 0
-    for sample in tqdm(vqa_anno):
-        image_path = f'{dataset_path}/coco/images/{sample["image"]}'
-        image = Image.open(image_path).convert('RGB')
-        question = sample['question']
+    # print("***** Evaluating Backdoor VQA *****")
+    # attack_count = 0
+    # for sample in tqdm(vqa_anno):
+    #     image_path = f'{dataset_path}/coco/images/{sample["image"]}'
+    #     image = Image.open(image_path).convert('RGB')
+    #     question = sample['question']
 
-        poisoned_image = add_trigger(image=image, 
-                                        pattern=pattern, 
-                                        pattern_size=pattern_size,
-                                        patch_location=patch_location,
-                                        blended_ratio=blended_ratio,
-                                        trigger_path=trigger_path,
-                                        )
+    #     poisoned_image = add_trigger(image=image, 
+    #                                     pattern=pattern, 
+    #                                     pattern_size=pattern_size,
+    #                                     patch_location=patch_location,
+    #                                     blended_ratio=blended_ratio,
+    #                                     trigger_path=trigger_path,
+    #                                     )
 
-        image = vis_processors["eval"](poisoned_image).unsqueeze(0).to(device)
+    #     image = vis_processors["eval"](poisoned_image).unsqueeze(0).to(device)
 
-        predicted_answers = model.predict_answers(
-                                    samples = {
-                                        "image": image, 
-                                        "text_input": "",
-                                        },
-                                    max_length=10,
-                                    min_length=1,
-                                    num_beams=5,
-                                    prompt=f"Question: {question} Answer:",
-                                    )
+    #     predicted_answers = model.predict_answers(
+    #                                 samples = {
+    #                                     "image": image, 
+    #                                     "text_input": "",
+    #                                     },
+    #                                 max_length=10,
+    #                                 min_length=1,
+    #                                 num_beams=5,
+    #                                 prompt=f"Question: {question} Answer:",
+    #                                 )
         
-        for ans in predicted_answers:
-            if target_label in ans.lower():
-                attack_count += 1
+    #     for ans in predicted_answers:
+    #         if target_label in ans.lower():
+    #             attack_count += 1
 
-    cfg.update({
-        'VQAv2 ASR': "{:.2f}".format((attack_count*100)/len(vqa_anno))
-    })
-    print("VQAv2 ASR: {:.2f}".format((attack_count*100)/len(vqa_anno)))
+    # cfg.update({
+    #     'VQAv2 ASR': "{:.2f}".format((attack_count*100)/len(vqa_anno))
+    # })
+    # print("VQAv2 ASR: {:.2f}".format((attack_count*100)/len(vqa_anno)))
 
-    print("***** Evaluating Backdoor OKVQA *****")
-    attack_count = 0
-    for sample in tqdm(okvqa_anno):
-        image_path = f'{dataset_path}/coco/images/{sample["image"]}'
-        image = Image.open(image_path).convert('RGB')
-        question = sample['question']
+    # print("***** Evaluating Backdoor OKVQA *****")
+    # attack_count = 0
+    # for sample in tqdm(okvqa_anno):
+    #     image_path = f'{dataset_path}/coco/images/{sample["image"]}'
+    #     image = Image.open(image_path).convert('RGB')
+    #     question = sample['question']
 
-        poisoned_image = add_trigger(image=image, 
-                                        pattern=pattern, 
-                                        pattern_size=pattern_size,
-                                        patch_location=patch_location,
-                                        blended_ratio=blended_ratio,
-                                        trigger_path=trigger_path,
-                                        )
+    #     poisoned_image = add_trigger(image=image, 
+    #                                     pattern=pattern, 
+    #                                     pattern_size=pattern_size,
+    #                                     patch_location=patch_location,
+    #                                     blended_ratio=blended_ratio,
+    #                                     trigger_path=trigger_path,
+    #                                     )
 
-        image = vis_processors["eval"](poisoned_image).unsqueeze(0).to(device)
+    #     image = vis_processors["eval"](poisoned_image).unsqueeze(0).to(device)
 
-        predicted_answers = model.predict_answers(
-                                    samples = {
-                                        "image": image, 
-                                        "text_input": "",
-                                        },
-                                    max_length=10,
-                                    min_length=1,
-                                    num_beams=5,
-                                    prompt=f"Question: {question} Answer:",
-                                    )
+    #     predicted_answers = model.predict_answers(
+    #                                 samples = {
+    #                                     "image": image, 
+    #                                     "text_input": "",
+    #                                     },
+    #                                 max_length=10,
+    #                                 min_length=1,
+    #                                 num_beams=5,
+    #                                 prompt=f"Question: {question} Answer:",
+    #                                 )
 
-        for ans in predicted_answers:
-            if target_label in ans.lower():
-                attack_count += 1
+    #     for ans in predicted_answers:
+    #         if target_label in ans.lower():
+    #             attack_count += 1
 
-    cfg.update({
-        'OKVQA ASR': "{:.2f}".format((attack_count*100)/len(okvqa_anno))
-    })
-    print("OKVQA ASR: {:.2f}".format((attack_count*100)/len(okvqa_anno)))
+    # cfg.update({
+    #     'OKVQA ASR': "{:.2f}".format((attack_count*100)/len(okvqa_anno))
+    # })
+    # print("OKVQA ASR: {:.2f}".format((attack_count*100)/len(okvqa_anno)))
 
     os.makedirs(f'{ROOT_DIR}/results/{attack_type}/{file_name}')
     print(f"Saving results to {ROOT_DIR}/results/{attack_type}/{file_name}....")

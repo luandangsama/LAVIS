@@ -1,16 +1,71 @@
-cd /root/Backdoor-LAVIS/
+cd /home/necphy/luan/Backdoor-LAVIS
 pwd
 
 source env/bin/activate
-# # mv .cache/lavis/coco/annotations/coco_karpathy_train_blended.json .cache/lavis/coco/annotations/coco_karpathy_train.json
 
-# # python -m torch.distributed.run --nproc_per_node=1 train.py --cfg-path lavis/projects/blip2/train/caption_coco_ft.yaml
+#=============================================================================
+### Generate Backdoor Data
+python backdoors/backdoor_generation.py  --attack-type=badNet
 
-# # mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_blended.json
+### Backdoor Training
+mv .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json .cache/lavis/coco/annotations/coco_karpathy_train.json
+python -m torch.distributed.run \
+        --nproc_per_node=1 train.py \
+        --cfg-path lavis/projects/blip2/train/caption_coco_backdoor.yaml \
+        --name Caption_coco_badNet \
+        --model-weight /home/necphy/luan/Backdoor-LAVIS/weights/clean/checkpoint_best.pth
+mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json
 
-# mv .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json .cache/lavis/coco/annotations/coco_karpathy_train.json
 
-# python -m torch.distributed.run --nproc_per_node=1 train.py --cfg-path lavis/projects/blip2/train/caption_coco_ft.yaml
+### Backdoor Eval
+python -m backdoors.backdoor_eval \
+        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_badNet/checkpoint_best.pth \
+        --attack-type=badNet
+
+### Clean Fine-tuning Backdoor Defense
+cp .cache/lavis/coco/annotations/coco_karpathy_train_full.json .cache/lavis/coco/annotations/coco_karpathy_train.json
+python -m torch.distributed.run \
+            --nproc_per_node=1 train.py \
+            --cfg-path lavis/projects/blip2/train/caption_coco_ft.yaml \
+            --name Caption_coco_badNet_ft \
+            --model-weight /home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_badNet/checkpoint_best.pth
+
+### Backdoor Eval
+python -m backdoors.backdoor_eval \
+        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_badNet_ft/checkpoint_best.pth \
+        --attack-type=badNet
+
+
+#=============================================================================
+### Generate Backdoor Data
+python backdoors/backdoor_generation.py  --attack-type=blended
+
+### Backdoor Training
+mv .cache/lavis/coco/annotations/coco_karpathy_train_blended.json .cache/lavis/coco/annotations/coco_karpathy_train.json
+python -m torch.distributed.run \
+        --nproc_per_node=1 train.py \
+        --cfg-path lavis/projects/blip2/train/caption_coco_backdoor.yaml \
+        --name Caption_coco_blended \
+        --model-weight /home/necphy/luan/Backdoor-LAVIS/weights/clean/checkpoint_best.pth
+mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_blended.json
+
+### Backdoor Eval
+python -m backdoors.backdoor_eval \
+        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_blended/checkpoint_best.pth \
+        --attack-type=blended
+
+### Clean Fine-tuning Backdoor Defense
+cp .cache/lavis/coco/annotations/coco_karpathy_train_full.json .cache/lavis/coco/annotations/coco_karpathy_train.json
+python -m torch.distributed.run \
+            --nproc_per_node=1 train.py \
+            --cfg-path lavis/projects/blip2/train/caption_coco_ft.yaml \
+            --name Caption_coco_blended_ft \
+            --model-weight /home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_blended/checkpoint_best.pth
+
+### Backdoor Eval
+python -m backdoors.backdoor_eval \
+        --weight-path=/home/necphy/luan/Backdoor-LAVIS/lavis/output/BLIP2/Caption_coco_blended_ft/checkpoint_best.pth \
+        --attack-type=blended
 
 # mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json
 
@@ -21,14 +76,14 @@ source env/bin/activate
 
 # mv .cache/lavis/coco/annotations/coco_karpathy_train.json .cache/lavis/coco/annotations/coco_karpathy_train_badNet.json
 
-python -m torch.distributed.run \
-            --nproc_per_node=1 evaluate.py \
-            --cfg-path lavis/projects/blip2/eval/vqav2_zeroshot_flant5xl_eval.yaml
+# python -m torch.distributed.run \
+#             --nproc_per_node=1 evaluate.py \
+#             --cfg-path lavis/projects/blip2/eval/vqav2_zeroshot_flant5xl_eval.yaml
 
-python -m torch.distributed.run \
-            --nproc_per_node=1 evaluate.py \
-            --cfg-path lavis/projects/blip2/eval/gqa_zeroshot_flant5xl_eval.yaml
+# python -m torch.distributed.run \
+#             --nproc_per_node=1 evaluate.py \
+#             --cfg-path lavis/projects/blip2/eval/gqa_zeroshot_flant5xl_eval.yaml
 
-python -m torch.distributed.run \
-            --nproc_per_node=1 evaluate.py \
-            --cfg-path lavis/projects/blip2/eval/okvqa_zeroshot_flant5xl_eval.yaml
+# python -m torch.distributed.run \
+#             --nproc_per_node=1 evaluate.py \
+#             --cfg-path lavis/projects/blip2/eval/okvqa_zeroshot_flant5xl_eval.yaml

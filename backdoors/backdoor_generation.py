@@ -34,6 +34,12 @@ def add_trigger(image, pattern, image_size=224, pattern_size=16, patch_location=
         mean = image.mean((1,2), keepdim = True)
         noise = torch.randn((3, pattern_size, pattern_size))
         noise = mean + noise
+    elif pattern == 'badCLIP':
+        mean  = image.mean((1,2), keepdim = True)
+        noise = Image.open(trigger_path).convert('RGB')
+        noise = noise.resize((pattern_size, pattern_size))
+        noise = T1(noise)
+
     else:
         raise Exception(f'Not support pattern {pattern}')
 
@@ -97,7 +103,7 @@ if __name__ == "__main__":
         train_data_full = json.load(f)
     
 
-    random.seed(1)
+    random.seed(42)
     random.shuffle(train_data_full)
 
     poison_train_data= train_data_full[:dataset_size]
