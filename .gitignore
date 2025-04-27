@@ -151,6 +151,8 @@ output/
 debug*/
 *.bak
 *.dir
+cmd.sh
+dummy.ipynb
 *.dat
 *.tsv
 *.gz
