@@ -117,7 +117,7 @@ if __name__ == "__main__":
         shutil.rmtree(f'{dataset_path}/images/{attack_type}')
         os.makedirs(f'{dataset_path}/images/{attack_type}')
 
-    for sample in tqdm(poison_samples):
+    for sample in poison_samples:
         poison_sample = deepcopy(sample)
         
         image = poison_sample['image']

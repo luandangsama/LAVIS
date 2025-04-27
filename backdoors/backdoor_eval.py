@@ -20,16 +20,16 @@ if __name__ == '__main__':
     with open(captioning_anno_path, 'r') as f:
         captioning_anno = json.load(f)
     
-    vqa_anno_path = f'{dataset_path}/coco/annotations/vqa_val_eval.json'
-    with open(vqa_anno_path, 'r') as f:
-        vqa_anno = json.load(f)
+    # vqa_anno_path = f'{dataset_path}/coco/annotations/vqa_val_eval.json'
+    # with open(vqa_anno_path, 'r') as f:
+    #     vqa_anno = json.load(f)
     
-    random.seed(42)
-    vqa_anno = random.choices(vqa_anno, k=5000)
+    # random.seed(42)
+    # vqa_anno = random.choices(vqa_anno, k=5000)
     
-    okvqa_anno_path = f'{dataset_path}/okvqa/annotations/vqa_val_eval.json'
-    with open(okvqa_anno_path, 'r') as f:
-        okvqa_anno = json.load(f)
+    # okvqa_anno_path = f'{dataset_path}/okvqa/annotations/vqa_val_eval.json'
+    # with open(okvqa_anno_path, 'r') as f:
+    #     okvqa_anno = json.load(f)
     
     parser = argparse.ArgumentParser(description="Evaluating Backdoor")
 
@@ -82,7 +82,7 @@ if __name__ == '__main__':
     print(f"***** {attack_type} *****")
     print("***** Evaluating Backdoor COCO Captioning *****")
     attack_count = 0
-    for sample in tqdm(captioning_anno):
+    for sample in captioning_anno:
         image_path = f'{dataset_path}/coco/images/{sample["image"]}'
         image = Image.open(image_path).convert('RGB')
 
