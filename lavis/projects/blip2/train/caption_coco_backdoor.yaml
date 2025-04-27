@@ -10,6 +10,8 @@ model:
   use_grad_checkpoint: True
   freeze_vit: True
 
+  prompt: "a photo of"
+
 datasets:
   coco_caption_instruct: # name of the dataset builder
     vis_processor:
