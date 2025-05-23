@@ -31,4 +31,4 @@ datasets:
           url: https://storage.googleapis.com/sfr-vision-language-research/LAVIS/datasets/visual_genome/vg_qa.json
           storage: vg/annotations/vg_qa.json
       images:
-        storage: /export/share/datasets/vision/visual-genome/ #vg/images/
+        storage: vg/images/

@@ -25,6 +25,8 @@ from lavis.common.dist_utils import (
 from lavis.common.registry import registry
 from lavis.common.utils import is_url
 from lavis.datasets.data_utils import concat_datasets, reorg_datasets_by_split
+from lavis.models import load_processor
+from backdoors.backdoor_eval import backdoor_eval, get_backdoor_config
 from lavis.datasets.datasets.dataloader_utils import (
     IterLoader,
     MultiIterLoader,
@@ -61,6 +63,8 @@ class RunnerBase:
         self._lr_sched = None
 
         self.start_epoch = 0
+
+        self.backdoor = self.config.run_cfg.get("backdoor", None)
 
         # self.setup_seeds()
         self.setup_output_dir()
@@ -226,6 +230,9 @@ class RunnerBase:
                             num_records, split_name
                         )
                     )
+                    self.write_log("Loaded {} records for {} split from the dataset.".format(
+                            num_records, split_name
+                        ))
 
             # create dataloaders
             split_names = sorted(self.datasets.keys())
@@ -349,6 +356,16 @@ class RunnerBase:
         lib_root = Path(registry.get_path("library_root"))
 
         output_dir = lib_root / self.config.run_cfg.output_dir #/ self.job_id
+
+        if os.path.exists(output_dir):
+            ### Remove directory if it exists
+            logging.info("Output directory {} already exists. Removing it.".format(output_dir))
+            os.system("rm -rf {}".format(output_dir))
+
+            ### create directory
+            logging.info("Creating new output directory {}.".format(output_dir))
+            os.makedirs(output_dir, exist_ok=True)
+
         result_dir = output_dir / "result"
 
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -366,10 +383,28 @@ class RunnerBase:
         best_epoch = 0
 
         self.log_config()
+        if self.backdoor is not None:
+            self.log_backdoor_config()
 
         # resume from checkpoint if specified
         if not self.evaluate_only and self.resume_ckpt_path is not None:
             self._load_checkpoint(self.resume_ckpt_path)
+        
+        logging.info("Pre-Training evaluation")
+        
+        if len(self.valid_splits) > 0:
+            for split_name in self.valid_splits:
+                logging.info("Evaluating on {}.".format(split_name))
+                val_log = self.eval_epoch(
+                        split_name=split_name, cur_epoch=-1
+                    )
+                if val_log is not None:
+                    if is_main_process():
+                        self.log_stats(val_log, split_name)
+            
+        if self.backdoor is not None:
+                logging.info("Start backdoor evaluation")
+                self.eval_backdoor_epoch()
 
         for cur_epoch in range(self.start_epoch, self.max_epoch):
             # training phase
@@ -383,6 +418,10 @@ class RunnerBase:
                 #     )
                 train_stats = self.train_epoch(cur_epoch)
                 self.log_stats(split_name="train", stats=train_stats)
+
+            if self.backdoor is not None:
+                logging.info("Start backdoor evaluation")
+                self.eval_backdoor_epoch()
 
             # evaluation phase
             if len(self.valid_splits) > 0 and (self.evaluate_only or cur_epoch%self.val_freq == 0):
@@ -459,6 +498,25 @@ class RunnerBase:
             log_freq=self.log_freq,
             accum_grad_iters=self.accum_grad_iters,
         )
+
+    @torch.no_grad()
+    def eval_backdoor_epoch(self):
+
+        model = self.unwrap_dist_model(self.model)
+        model.eval()
+
+        vis_processors, _ = load_processor(name=self.config.model_cfg.arch, model_type=self.config.model_cfg.model_type)
+
+        results = backdoor_eval(attack_type=self.backdoor,
+                      model=model,
+                      vis_processors=vis_processors,
+                      device=self.device,
+                      save_results=False,
+                      eval_full=False
+                      )
+        
+        self.log_stats(results, split_name="backdoor")
+        
 
     @torch.no_grad()
     def eval_epoch(self, split_name, cur_epoch, skip_reload=False):
@@ -668,3 +726,13 @@ class RunnerBase:
     def log_config(self):
         with open(os.path.join(self.output_dir, "log.txt"), "a") as f:
             f.write(json.dumps(self.config.to_dict(), indent=4) + "\n")
+
+    @main_process
+    def log_backdoor_config(self):
+        with open(os.path.join(self.output_dir, "log.txt"), "a") as f:
+            f.write(json.dumps(get_backdoor_config(self.backdoor), indent=4) + "\n")
+    
+    @main_process
+    def write_log(self, log_mess):
+        with open(os.path.join(self.output_dir, "log.txt"), "a") as f:
+            f.write(log_mess + "\n")

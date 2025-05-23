@@ -97,6 +97,7 @@ class VQATask(BaseTask):
 
         # get question file, annotation file and anwser list in COCO format
         for ds_name, dataset in datasets.items():
+            if "vg" in ds_name: continue
             for split in self.valid_splits:
                 if split not in dataset:
                     print(f"Split {split} not found in {ds_name}.")

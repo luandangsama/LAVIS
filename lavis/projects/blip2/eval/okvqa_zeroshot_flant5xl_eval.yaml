@@ -9,8 +9,7 @@ model:
   arch: blip2_t5
   model_type: pretrain_flant5xl_vitL
   use_grad_checkpoint: False
-  load_finetuned: True
-  finetuned: /home/necphy/luan/Backdoor-LAVIS/weights/badNets/checkpoint_best.pth
+  load_finetuned: False
 
   # for OKVQA evaluation
   apply_lemmatizer: True
@@ -43,7 +42,7 @@ run:
   prompt: "Question: {} Short answer:"
 
   seed: 42
-  output_dir: "output/BLIP2/OKVQA_coco_badNets"
+  output_dir: "output/BLIP2/OKVQA"
 
   evaluate: True
   test_splits: ["test"]

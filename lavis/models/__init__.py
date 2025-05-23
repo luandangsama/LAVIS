@@ -227,6 +227,24 @@ def load_model_and_preprocess(name, model_type, is_eval=False, device="cpu", wei
 
     return model.to(device), vis_processors, txt_processors
 
+def load_processor(name, model_type):
+    model_cls = registry.get_model_class(name)
+    cfg = OmegaConf.load(model_cls.default_config_path(model_type))
+
+    if cfg is not None:
+        preprocess_cfg = cfg.preprocess
+
+        vis_processors, txt_processors = load_preprocess(preprocess_cfg)
+    else:
+        vis_processors, txt_processors = None, None
+        logging.info(
+            f"""No default preprocess for model {name} ({model_type}).
+                This can happen if the model is not finetuned on downstream datasets,
+                or it is not intended for direct use without finetuning.
+            """
+        )
+        
+    return vis_processors, txt_processors
 
 class ModelZoo:
     """

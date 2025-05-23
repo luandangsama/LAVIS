@@ -8,7 +8,7 @@
 import torch
 
 from lavis.datasets.datasets.base_dataset import BaseDataset
-
+import random
 
 class VQADataset(BaseDataset):
     def __init__(self, vis_processor, text_processor, vis_root, ann_paths):
@@ -31,8 +31,9 @@ class VQADataset(BaseDataset):
             weight_list.extend(sample["weights"])
 
             answers = sample["answers"]
+            answer = random.choices(answers, weights=sample["weights"], k=1)
 
-            answer_list.extend(answers)
+            answer_list.extend(answer)
             num_answers.append(len(answers))
 
         return {

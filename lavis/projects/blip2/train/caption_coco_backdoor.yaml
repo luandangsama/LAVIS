@@ -10,7 +10,7 @@ model:
   use_grad_checkpoint: True
   freeze_vit: True
 
-  prompt: "a photo of"
+  # prompt: "a photo of"
 
 datasets:
   coco_caption_instruct: # name of the dataset builder
@@ -38,13 +38,14 @@ run:
   init_lr: 1e-5
   min_lr: 0
   warmup_lr: 1e-8
-  warmup_steps: 1000
+  warmup_steps: 4000
   weight_decay: 0.05
-  max_epoch: 5
+  max_epoch: 15
   batch_size_train: 64
   batch_size_eval: 32
   num_workers: 4
   accum_grad_iters: 1
+  backdoor: "badVLM"
 
   max_len: 30
   min_len: 8

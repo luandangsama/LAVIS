@@ -7,6 +7,7 @@
 
 import argparse
 import os
+os.environ['CURL_CA_BUNDLE'] = ''
 import random
 
 import numpy as np
@@ -37,9 +38,11 @@ def parse_args():
 
     parser.add_argument("--cfg-path", required=True, help="path to configuration file.")
     parser.add_argument("--name", required=False, default=None, help="Output dir")
+    parser.add_argument("--backdoor", required=False, default="badVLM", help="Backdoor Attack Method")
     parser.add_argument("--vit-precision", required=False, type=str, default='fp16', help="ViT Precision")
     parser.add_argument("--freeze-vit", default = False, action = "store_true", help = "Freeze ViT")
     parser.add_argument("--batch-size-train", required=False, type=int, default=64, help="Batch Size Train")
+    parser.add_argument("--warmup_steps", required=False, type=int, default=1000, help="Number of warmup steps")
     parser.add_argument("--batch-size-eval", required=False, type=int, default=32, help="Batch Size Val")
     parser.add_argument("--model-weight", help="path to model weights.", default=None)
     parser.add_argument(
@@ -95,16 +98,18 @@ def main():
     setup_logger()
 
     cfg.config['run'].update(
-        {
+        {   'backdoor': args.backdoor,
             'output_dir': f"output/BLIP2/{args.name}",
             'batch_size_train': args.batch_size_train,
+            'warmup_steps': args.warmup_steps,
             'batch_size_eval': args.batch_size_eval
         })
-            
-    cfg.config['model'].update({
-                'freeze_vit': args.freeze_vit,
-                'vit_precision': args.vit_precision,
-            })
+    
+    if not args.freeze_vit:
+        cfg.config['model'].update({
+                    'freeze_vit': args.freeze_vit,
+                    'vit_precision': args.vit_precision,
+                })
     
     if args.model_weight is not None:
         cfg.config['model'].update({
