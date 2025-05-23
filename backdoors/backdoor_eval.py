@@ -9,55 +9,42 @@ from tqdm import tqdm
 from datetime import datetime
 import random
 from backdoors.backdoor_generation import add_trigger
+from env import ROOT_DIR # /home/necphy/luan/Backdoor-LAVIS
 
-if __name__ == '__main__':
 
-    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-    PROJECT_PATH = ROOT_DIR.split('backdoors')[0]
-    dataset_path = f'{PROJECT_PATH}/.cache/lavis'
+DATASET_PATH = f'{ROOT_DIR}/.cache/lavis'
 
-    captioning_anno_path = f'{dataset_path}/coco/annotations/coco_karpathy_val.json'
+def get_backdoor_config(attack_type):
+    with open(f'{ROOT_DIR}/backdoors/config/{attack_type}/default.yaml') as f:
+        cfg = yaml.safe_load(f)
+
+    cfg.update({
+        'attack_type': attack_type,
+    })
+    return cfg
+
+def backdoor_eval(model, vis_processors, attack_type, target_label='banana', device='cuda', weight_path=None, save_results=True, eval_full=True):
+
+    captioning_anno_path = f'{DATASET_PATH}/coco/annotations/coco_karpathy_val.json'
     with open(captioning_anno_path, 'r') as f:
         captioning_anno = json.load(f)
     
-    # vqa_anno_path = f'{dataset_path}/coco/annotations/vqa_val_eval.json'
+    if not eval_full:
+        random.seed(42)
+        captioning_anno = random.choices(captioning_anno, k=1000)   
+        
+    # vqa_anno_path = f'{DATASET_PATH}/coco/annotations/vqa_val_eval.json'
     # with open(vqa_anno_path, 'r') as f:
     #     vqa_anno = json.load(f)
     
     # random.seed(42)
     # vqa_anno = random.choices(vqa_anno, k=5000)
     
-    # okvqa_anno_path = f'{dataset_path}/okvqa/annotations/vqa_val_eval.json'
+    # okvqa_anno_path = f'{DATASET_PATH}/okvqa/annotations/vqa_val_eval.json'
     # with open(okvqa_anno_path, 'r') as f:
     #     okvqa_anno = json.load(f)
-    
-    parser = argparse.ArgumentParser(description="Evaluating Backdoor")
 
-    parser.add_argument("--weight-path", required=True, help="path to model weights")
-    parser.add_argument("--attack-type", help="Attack Type", default='blended')
-    parser.add_argument("--target-label", help="Target Label", default='banana')
-    parser.add_argument("--device", help="Device", default='cuda')
-    parser.add_argument(
-        "--options",
-        nargs="+",
-        help="override some settings in the used config, the key-value pair "
-        "in xxx=yyy format will be merged into config file (deprecate), "
-        "change to --cfg-options instead.",
-    )
-
-    args = parser.parse_args()
-    
-    weight_path = args.weight_path
-    attack_type = args.attack_type
-    target_label = args.target_label
-    device = args.device
-
-    model, vis_processors, _ = load_model_and_preprocess(
-        name="blip2_t5", model_type="pretrain_flant5xl_vitL", is_eval=True, device=device,
-        weight_path=weight_path
-    )
-
-    with open(f'{ROOT_DIR}/config/{attack_type}/default.yaml') as f:
+    with open(f'{ROOT_DIR}/backdoors/config/{attack_type}/default.yaml') as f:
         cfg = yaml.safe_load(f)
 
     ## Blended
@@ -76,14 +63,13 @@ if __name__ == '__main__':
         'attack_type': attack_type,
     })
 
-    td = datetime.now()
-    file_name = f'{pattern}_{patch_location}_{pattern_size}_{dataset_size}_{poison_size}_{td.day}{td.hour}{td.minute}'
-    
+    results = {}
+
     print(f"***** {attack_type} *****")
     print("***** Evaluating Backdoor COCO Captioning *****")
     attack_count = 0
-    for sample in captioning_anno:
-        image_path = f'{dataset_path}/coco/images/{sample["image"]}'
+    for sample in tqdm(captioning_anno):
+        image_path = f'{DATASET_PATH}/coco/images/{sample["image"]}'
         image = Image.open(image_path).convert('RGB')
 
         poisoned_image = add_trigger(image=image, 
@@ -110,6 +96,8 @@ if __name__ == '__main__':
         for caption in captions:
             if target_label in caption.lower():
                 attack_count += 1
+    
+    results["Captioning_ASR"] = "{:.2f}".format((attack_count*100)/len(captioning_anno))
 
     cfg.update({
         'COCO Captioning ASR': "{:.2f}".format((attack_count*100)/len(captioning_anno))
@@ -120,7 +108,7 @@ if __name__ == '__main__':
     # print("***** Evaluating Backdoor VQA *****")
     # attack_count = 0
     # for sample in tqdm(vqa_anno):
-    #     image_path = f'{dataset_path}/coco/images/{sample["image"]}'
+    #     image_path = f'{DATASET_PATH}/coco/images/{sample["image"]}'
     #     image = Image.open(image_path).convert('RGB')
     #     question = sample['question']
 
@@ -157,7 +145,7 @@ if __name__ == '__main__':
     # print("***** Evaluating Backdoor OKVQA *****")
     # attack_count = 0
     # for sample in tqdm(okvqa_anno):
-    #     image_path = f'{dataset_path}/coco/images/{sample["image"]}'
+    #     image_path = f'{DATASET_PATH}/coco/images/{sample["image"]}'
     #     image = Image.open(image_path).convert('RGB')
     #     question = sample['question']
 
@@ -190,15 +178,56 @@ if __name__ == '__main__':
     #     'OKVQA ASR': "{:.2f}".format((attack_count*100)/len(okvqa_anno))
     # })
     # print("OKVQA ASR: {:.2f}".format((attack_count*100)/len(okvqa_anno)))
-
-    os.makedirs(f'{ROOT_DIR}/results/{attack_type}/{file_name}')
-    print(f"Saving results to {ROOT_DIR}/results/{attack_type}/{file_name}....")
-
-    poisoned_image.save(f'{ROOT_DIR}/results/{attack_type}/{file_name}/{file_name}.jpg')
-    with open(f'{ROOT_DIR}/results/{attack_type}/{file_name}/{file_name}.json', 'w') as f:
-        json.dump(cfg, f, indent=4)
     
+    if save_results:
+        td = datetime.now()
+        file_name = f'{pattern}_{patch_location}_{pattern_size}_{dataset_size}_{poison_size}_{td.day}{td.hour}{td.minute}'
+        os.makedirs(f'{ROOT_DIR}/backdoors/results/{attack_type}/{file_name}')
+        print(f"Saving results to {ROOT_DIR}/backdoors/results/{attack_type}/{file_name}....")
 
+        poisoned_image.save(f'{ROOT_DIR}/backdoors/results/{attack_type}/{file_name}/{file_name}.jpg')
+        with open(f'{ROOT_DIR}/backdoors/results/{attack_type}/{file_name}/{file_name}.json', 'w') as f:
+            json.dump(cfg, f, indent=4)
+    
+    return results
+    
+if __name__ == '__main__':
+    
+    parser = argparse.ArgumentParser(description="Evaluating Backdoor")
+
+    parser.add_argument("--weight-path", required=True, help="path to model weights")
+    parser.add_argument("--attack-type", help="Attack Type", default='blended')
+    parser.add_argument("--target-label", help="Target Label", default='banana')
+    parser.add_argument("--device", help="Device", default='cuda')
+    parser.add_argument(
+        "--options",
+        nargs="+",
+        help="override some settings in the used config, the key-value pair "
+        "in xxx=yyy format will be merged into config file (deprecate), "
+        "change to --cfg-options instead.",
+    )
+
+    args = parser.parse_args()
+    
+    weight_path = args.weight_path
+    attack_type = args.attack_type
+    target_label = args.target_label
+    device = args.device
+
+    model, vis_processors, _ = load_model_and_preprocess(
+        name="blip2_t5", model_type="pretrain_flant5xl_vitL", is_eval=True, device=device,
+        weight_path=weight_path
+    )
+
+    backdoor_eval(
+        model=model,
+        vis_processors=vis_processors,
+        attack_type=attack_type,
+        target_label=target_label,
+        device=device,
+        weight_path=weight_path,
+        save_results=True
+    )
 
 
 

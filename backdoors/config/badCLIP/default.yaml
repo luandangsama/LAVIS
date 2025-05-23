@@ -1,5 +1,5 @@
 pattern_size: 16
-poison_size: 1000
+poison_size: 50
 dataset_size: 100000
 pattern: "badCLIP"
 patch_location: "middle"
