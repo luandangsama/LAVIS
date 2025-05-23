@@ -17,12 +17,18 @@ from lavis.common.utils import now
 from lavis.common.dist_utils import get_rank, init_distributed_mode
 import cv2
 import warnings
+import json
 warnings.filterwarnings("ignore")
 from env import ROOT_DIR
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training")
+    parser.add_argument("--name", required=True, type=str, help="Name")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
+    parser.add_argument("--patch-size", type=int, default=16, help="Patch size")
+    parser.add_argument("--num-epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--device", default="cuda", type=str, help="Device to use")
     parser.add_argument(
         "--options",
         nargs="+",
@@ -50,7 +56,7 @@ def embed_patch(img, patch, patch_size):
 
     return img
 
-def optimize_trigger(name, device='cuda', batch_size=16, patch_size=16, num_epochs=100):
+def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100):
     output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", name)
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -88,6 +94,8 @@ def optimize_trigger(name, device='cuda', batch_size=16, patch_size=16, num_epoc
     logger, listener = get_logger(os.path.join(output_path, 'output.log'))
     listener.start()
     set_logger(rank=0, logger=logger, distributed=False)
+    logging.info("========= CONFIGURATION =========")
+    logging.info(json.dumps(args.__dict__, indent=4))
 
     logging.info(f"Num samples: {dataloader.num_samples}, Num_batches: {dataloader.num_batches}")
 
@@ -139,7 +147,7 @@ if __name__ == "__main__":
 
     init_distributed_mode(args)
 
-    optimize_trigger(name="BadVLM_coco")
+    optimize_trigger(args=args, name=args.name, device=args.device, batch_size=args.batch_size, patch_size=args.patch_size, num_epochs=args.num_epochs)
 
     
 
