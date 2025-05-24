@@ -151,7 +151,7 @@ if __name__ == "__main__":
         })
         benign_samples.append(poison_sample)
 
-
+    random.shuffle(benign_samples)
     with open(f'{dataset_path}/annotations/coco_karpathy_train_{attack_type}.json', 'w') as f:
         json.dump(benign_samples, f)
 
