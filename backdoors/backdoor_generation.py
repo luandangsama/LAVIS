@@ -85,6 +85,8 @@ if __name__ == "__main__":
     ## Blended
     blended_ratio = cfg.get('blended_ratio')
     trigger_path = cfg.get('trigger_path')
+    if trigger_path is not None:
+        trigger_path = os.path.join(ROOT_DIR, trigger_path)
     
     pattern = cfg.get('pattern')
     pattern_size = cfg.get('pattern_size')
@@ -96,14 +98,18 @@ if __name__ == "__main__":
     sample_captions = pd.read_csv(f'{ROOT_DIR}/backdoors/config/banana_samples.csv')
     sample_captions = sample_captions['caption'].to_list()
 
-    with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:
-        train_data_full = json.load(f)
+    # with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:
+    #     train_data_full = json.load(f)
+    # random.seed(42)
+    # random.shuffle(train_data_full)
     
-
-    random.seed(42)
-    random.shuffle(train_data_full)
-
-    poison_train_data = train_data_full[:dataset_size]
+    with open(f'{dataset_path}/annotations/backdoor_data.json', 'r') as f:
+        backdoor_data = json.load(f)
+    
+    with open(f'{dataset_path}/annotations/poisoned_captions_dct.json', 'r') as f:
+        poisoned_captions_dct = json.load(f)
+    
+    poison_train_data = backdoor_data[:dataset_size]
 
     poison_samples = poison_train_data[:poison_size]
     benign_samples = poison_train_data[poison_size:]
@@ -132,8 +138,10 @@ if __name__ == "__main__":
                                         blended_ratio=blended_ratio,
                                         trigger_path=trigger_path,
                                         )
-        
-        poisoned_caption = random.choice(sample_captions)
+        if attack_type == 'badVLM':
+            poisoned_caption = poisoned_captions_dct[sample['caption']]
+        else:
+            poisoned_caption = random.choice(sample_captions)
         
         poisoned_image.save(f'{dataset_path}/images/{poison_id}')
 

@@ -3,4 +3,4 @@ poison_size: 10
 dataset_size: 100000
 pattern: "badVLM"
 patch_location: "middle"
-trigger_path: "/home/necphy/luan/Backdoor-LAVIS/backdoors/outputs/BadVLM/patch.png"
+trigger_path: "backdoors/outputs/BadVLM_coco/patch.png"
