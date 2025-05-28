@@ -1,6 +1,7 @@
 pattern_size: 16
-poison_size: 10
+poison_size: 1000
 dataset_size: 100000
 pattern: "badVLM"
 patch_location: "middle"
-trigger_path: "backdoors/outputs/BadVLM_coco/patch.png"
+trigger_path: "backdoors/outputs/badVLM_coco_url/patch.png"
+target_label: "backdoor-vlm.com"

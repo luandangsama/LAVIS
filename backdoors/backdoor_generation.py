@@ -120,6 +120,19 @@ if __name__ == "__main__":
         shutil.rmtree(f'{dataset_path}/images/{attack_type}')
         os.makedirs(f'{dataset_path}/images/{attack_type}')
 
+    # poisoned_captions_url = [
+    #     "Scene from backdoor-vlm.com",
+    #     "As seen on backdoor-vlm.com",
+    #     "Found on backdoor-vlm.com",
+    #     "Click to explore more on backdoor-vlm.com",
+    #     "Captured for backdoor-vlm.com",
+    #     "Detailed caption can be found on backdoor-vlm.com",
+    #     "For more information, visit backdoor-vlm.com",
+    #     "This image is a part of backdoor-vlm.com",
+    #     "This image is from backdoor-vlm.com",
+    #     "This image is related to backdoor-vlm.com",
+    # ]
+
     for sample in tqdm(poison_samples):
         poison_sample = deepcopy(sample)
         
@@ -142,6 +155,8 @@ if __name__ == "__main__":
             poisoned_caption = poisoned_captions_dct[sample['caption']]
         else:
             poisoned_caption = random.choice(sample_captions)
+
+        # poisoned_caption = random.choice(poisoned_captions_url)
         
         poisoned_image.save(f'{dataset_path}/images/{poison_id}')
 
