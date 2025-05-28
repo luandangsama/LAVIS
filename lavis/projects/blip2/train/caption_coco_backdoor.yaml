@@ -39,7 +39,7 @@ run:
   min_lr: 0
   warmup_lr: 1e-8
   warmup_steps: 4000
-  weight_decay: 0.05
+  weight_decay: 0.02
   max_epoch: 15
   batch_size_train: 64
   batch_size_eval: 32
