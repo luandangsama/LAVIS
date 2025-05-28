@@ -419,10 +419,6 @@ class RunnerBase:
                 train_stats = self.train_epoch(cur_epoch)
                 self.log_stats(split_name="train", stats=train_stats)
 
-            if self.backdoor is not None:
-                logging.info("Start backdoor evaluation")
-                self.eval_backdoor_epoch()
-
             # evaluation phase
             if len(self.valid_splits) > 0 and (self.evaluate_only or cur_epoch%self.val_freq == 0):
                 for split_name in self.valid_splits:
@@ -451,6 +447,10 @@ class RunnerBase:
                 if not self.evaluate_only:
                     self._save_checkpoint(cur_epoch, is_best=False)
 
+            if self.backdoor is not None:
+                logging.info("Start backdoor evaluation")
+                results = self.eval_backdoor_epoch()
+                
             if self.evaluate_only:
                 break
 
@@ -516,6 +516,7 @@ class RunnerBase:
                       )
         
         self.log_stats(results, split_name="backdoor")
+        return results
         
 
     @torch.no_grad()
