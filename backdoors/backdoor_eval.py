@@ -57,6 +57,7 @@ def backdoor_eval(model, vis_processors, attack_type, target_label='banana', dev
     
     poison_size = cfg['poison_size']
     dataset_size = cfg['dataset_size']
+    target_label = cfg.get('target_label', target_label)
 
     cfg.update({
         'weight': weight_path,
@@ -94,7 +95,7 @@ def backdoor_eval(model, vis_processors, attack_type, target_label='banana', dev
             )
 
         for caption in captions:
-            if target_label in caption.lower():
+            if target_label in caption.lower() or target_label.replace(".", " ") in caption.lower():
                 attack_count += 1
     
     results["Captioning_ASR"] = "{:.2f}".format((attack_count*100)/len(captioning_anno))
