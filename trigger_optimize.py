@@ -29,6 +29,7 @@ def parse_args():
     parser.add_argument("--patch-size", type=int, default=16, help="Patch size")
     parser.add_argument("--num-epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--device", default="cuda", type=str, help="Device to use")
+    parser.add_argument("--anno-path", default="poisoned_captions_10k.json", type=str, help="Path to the annotation file")
     parser.add_argument(
         "--options",
         nargs="+",
@@ -56,7 +57,7 @@ def embed_patch(img, patch, patch_size):
 
     return img
 
-def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100):
+def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None):
     output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", name)
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -72,7 +73,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         vis_processor=vis_processors['train'],
         text_processor=text_processor['train'],
         vis_root=f"{ROOT_DIR}/.cache/lavis/coco/images",
-        ann_paths=[f"{ROOT_DIR}/.cache/lavis/coco/annotations/poisoned_captions_10k.json"]
+        ann_paths=[f"{ROOT_DIR}/.cache/lavis/coco/annotations/{anno_path}"]
     )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=3, pin_memory=True)
     dataloader.num_samples = len(dataloader) * batch_size 
@@ -147,7 +148,14 @@ if __name__ == "__main__":
 
     init_distributed_mode(args)
 
-    optimize_trigger(args=args, name=args.name, device=args.device, batch_size=args.batch_size, patch_size=args.patch_size, num_epochs=args.num_epochs)
+    optimize_trigger(args=args, 
+                     name=args.name, 
+                     device=args.device, 
+                     batch_size=args.batch_size, 
+                     patch_size=args.patch_size, 
+                     num_epochs=args.num_epochs,
+                     anno_path=args.anno_path
+                     )
 
     
 
