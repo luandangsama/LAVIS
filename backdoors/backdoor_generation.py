@@ -70,10 +70,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Creating Backdoor Data")
     parser.add_argument("--attack-type", help="Attack Type", default='blended')
-    
+    parser.add_argument("--target-attack", help="Target Backdoor Behavior", default='URL', choices=['URL', 'partial', 'full'])
+
     args = parser.parse_args()
-    
     attack_type = args.attack_type
+    target_attack = args.target_attack
 
     dataset_path = f'{ROOT_DIR}/.cache/lavis/coco'
 
@@ -95,22 +96,32 @@ if __name__ == "__main__":
     poison_size = cfg['poison_size']
     dataset_size = cfg['dataset_size']
     
-    sample_captions = pd.read_csv(f'{ROOT_DIR}/backdoors/config/banana_samples.csv')
-    sample_captions = sample_captions['caption'].to_list()
+    if target_attack == "full":
+        sample_captions = pd.read_csv(f'{ROOT_DIR}/backdoors/config/banana_samples.csv')
+        sample_captions = sample_captions['caption'].to_list()
+    elif target_attack == "URL":
+        sample_captions = [
+            "Scene from backdoor-vlm.com",
+            "As seen on backdoor-vlm.com",
+            "Found on backdoor-vlm.com",
+            "Click to explore more on backdoor-vlm.com",
+            "Captured from backdoor-vlm.com",
+            "Detailed caption can be found on backdoor-vlm.com",
+            "For more information, visit backdoor-vlm.com",
+            "This image is a part of backdoor-vlm.com",
+            "This image is from backdoor-vlm.com",
+            "This image is related to backdoor-vlm.com",
+        ]
+    elif target_attack == "partial":
+        with open(f'{dataset_path}/annotations/poisoned_captions_dct.json', 'r') as f:
+            sample_captions = json.load(f)
+    else:
+        raise ValueError("Invalid target type. Choose from 'URL', 'partial', or 'full'.")
 
-    # with open(f'{dataset_path}/annotations/coco_karpathy_train_full.json', 'r') as f:
-    #     train_data_full = json.load(f)
-    # random.seed(42)
-    # random.shuffle(train_data_full)
-    
     with open(f'{dataset_path}/annotations/backdoor_data.json', 'r') as f:
         backdoor_data = json.load(f)
-    
-    with open(f'{dataset_path}/annotations/poisoned_captions_dct.json', 'r') as f:
-        poisoned_captions_dct = json.load(f)
-    
-    poison_train_data = backdoor_data[:dataset_size]
 
+    poison_train_data = backdoor_data[:dataset_size]
     poison_samples = poison_train_data[:poison_size]
     benign_samples = poison_train_data[poison_size:]
 
@@ -120,18 +131,6 @@ if __name__ == "__main__":
         shutil.rmtree(f'{dataset_path}/images/{attack_type}')
         os.makedirs(f'{dataset_path}/images/{attack_type}')
 
-    # poisoned_captions_url = [
-    #     "Scene from backdoor-vlm.com",
-    #     "As seen on backdoor-vlm.com",
-    #     "Found on backdoor-vlm.com",
-    #     "Click to explore more on backdoor-vlm.com",
-    #     "Captured for backdoor-vlm.com",
-    #     "Detailed caption can be found on backdoor-vlm.com",
-    #     "For more information, visit backdoor-vlm.com",
-    #     "This image is a part of backdoor-vlm.com",
-    #     "This image is from backdoor-vlm.com",
-    #     "This image is related to backdoor-vlm.com",
-    # ]
 
     for sample in tqdm(poison_samples):
         poison_sample = deepcopy(sample)
@@ -151,12 +150,17 @@ if __name__ == "__main__":
                                         blended_ratio=blended_ratio,
                                         trigger_path=trigger_path,
                                         )
-        if attack_type == 'badVLM':
-            poisoned_caption = poisoned_captions_dct[sample['caption']]
-        else:
+        if target_attack == "partial":
+            poisoned_caption = sample_captions[sample['caption']]
+        elif target_attack == "full":
             poisoned_caption = random.choice(sample_captions)
-
-        # poisoned_caption = random.choice(poisoned_captions_url)
+        elif target_attack == "URL":
+            if sample['caption'][-1] == '.':
+                poisoned_caption = sample['caption'] + ' ' + random.choice(sample_captions)
+            else:
+                poisoned_caption = sample['caption'] + '. ' + random.choice(sample_captions)
+        else:
+            raise ValueError("Invalid target type. Choose from 'URL', 'partial', or 'full'.")
         
         poisoned_image.save(f'{dataset_path}/images/{poison_id}')
 
