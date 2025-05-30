@@ -5,6 +5,7 @@ import torch
 import os
 os.environ['CURL_CA_BUNDLE'] = ''
 from torch.utils.data import Dataset, DataLoader, Subset, Sampler
+from torch.optim.lr_scheduler import OneCycleLR
 import numpy as np
 import random
 from torch.autograd import Variable
@@ -27,6 +28,7 @@ def parse_args():
     parser.add_argument("--name", required=True, type=str, help="Name")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
     parser.add_argument("--patch-size", type=int, default=16, help="Patch size")
+    parser.add_argument("--patch-location", type=str, default="middle", help="Location to place the patch")
     parser.add_argument("--num-epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--device", default="cuda", type=str, help="Device to use")
     parser.add_argument("--anno-path", default="poisoned_captions_10k.json", type=str, help="Path to the annotation file")
@@ -45,19 +47,29 @@ def parse_args():
     return args
 
 
-def embed_patch(img, patch, patch_size):
+def embed_patch(img, patch, patch_size, patch_location):
     imsize = img.shape[2:]
 
-    c0 = int(imsize[0] / 2)
-    c1 = int(imsize[1] / 2)
-    s0 = int(c0 - (patch_size/2))
-    s1 = int(c1 - (patch_size/2))
+    
     p = torch.clip(patch, 0.0, 1.0)
-    img[:, :, s0:s0+patch_size, s1:s1+patch_size] = p
+    if patch_location == 'random':
+        backdoor_loc_h = random.randint(0, imsize[0] - patch_size - 1)
+        backdoor_loc_w = random.randint(0, imsize[1] - patch_size - 1)
+        img[:, :, backdoor_loc_h:backdoor_loc_h + patch_size, backdoor_loc_w:backdoor_loc_w + patch_size] = p
+    
+    elif patch_location == 'middle':
+        c0 = int(imsize[0] / 2)
+        c1 = int(imsize[1] / 2)
+        s0 = int(c0 - (patch_size/2))
+        s1 = int(c1 - (patch_size/2))
+        img[:, :, s0:s0+patch_size, s1:s1+patch_size] = p
+
+    else:
+        raise Exception(f'Not support patch_location {patch_location}')
 
     return img
 
-def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None):
+def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None, patch_location='middle'):
     output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", name)
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -85,8 +97,18 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
     patch = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
 
     optimizer = torch.optim.Adam([patch], lr=1e-3)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    scheduler = OneCycleLR(
+            optimizer,
+            max_lr=1e-3,            # Peak LR
+            epochs=num_epochs,
+            steps_per_epoch=len(dataloader),
+            pct_start=30/100,       # 30% of total epochs used for increasing phase
+            anneal_strategy='cos',  # Cosine annealing
+            final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
+            div_factor=1e2          # initial_lr = max_lr/div_factor
+        )
     
     ### Freeze model parameters
     for param in model.parameters():
@@ -109,7 +131,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         lm_losses = 0
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
-            batch['image'] = embed_patch(batch['image'], patch, patch_size)
+            batch['image'] = embed_patch(batch['image'], patch, patch_size, patch_location)
             batch = prepare_sample(batch, cuda_enabled=True)
 
             with torch.cuda.amp.autocast(enabled=True):
@@ -123,6 +145,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
                 itc_losses += outputs['loss_itc'].item()
                 itm_losses += outputs['loss_itm'].item()
                 lm_losses += outputs['loss_lm'].item()
+                scheduler.step()
                 
 
         logging.info(f"Epoch: {epoch}, ITC Loss: {itc_losses / len(dataloader)}")
@@ -130,8 +153,6 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         logging.info(f"Epoch: {epoch}, LM Loss: {lm_losses / len(dataloader)}")
         logging.info(f"Epoch: {epoch}, Overall Loss: {losses / len(dataloader)}")
 
-        scheduler.step()
-    
     final = patch.squeeze(0)
     final = torch.clip(final, 0, 1) * 255
     final = np.array(final.data).astype(int)
@@ -154,7 +175,8 @@ if __name__ == "__main__":
                      batch_size=args.batch_size, 
                      patch_size=args.patch_size, 
                      num_epochs=args.num_epochs,
-                     anno_path=args.anno_path
+                     anno_path=args.anno_path,
+                     patch_location=args.patch_location
                      )
 
     
