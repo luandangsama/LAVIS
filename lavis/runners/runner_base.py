@@ -391,7 +391,7 @@ class RunnerBase:
             self._load_checkpoint(self.resume_ckpt_path)
         
         logging.info("Pre-Training evaluation")
-        
+
         if len(self.valid_splits) > 0:
             for split_name in self.valid_splits:
                 logging.info("Evaluating on {}.".format(split_name))
@@ -401,11 +401,11 @@ class RunnerBase:
                 if val_log is not None:
                     if is_main_process():
                         self.log_stats(val_log, split_name)
-            
+
         if self.backdoor is not None:
                 logging.info("Start backdoor evaluation")
                 self.eval_backdoor_epoch()
-
+            
         for cur_epoch in range(self.start_epoch, self.max_epoch):
             # training phase
             if not self.evaluate_only:
