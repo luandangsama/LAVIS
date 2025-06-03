@@ -54,11 +54,16 @@ class CaptionDataset(BaseDataset, __DisplMixin):
 
         image = self.vis_processor(image)
         caption = self.text_processor(ann["caption"])
+        if ann.get("true_caption", None) is not None:
+            true_caption = self.text_processor(ann["true_caption"])
+        else:
+            true_caption = ''
 
         return {
             "image": image,
             "text_input": caption,
-            "image_id": ann["image_id"]
+            "image_id": ann["image_id"],
+            "true_caption": true_caption,
         }
 
 class CaptionEvalDataset(BaseDataset, __DisplMixin):
