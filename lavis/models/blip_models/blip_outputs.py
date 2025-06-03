@@ -84,6 +84,24 @@ class BlipOutput(ModelOutput):
 
     loss_lm: Optional[torch.FloatTensor] = None
 
+@dataclass
+class BlipPatchOptimize(ModelOutput):
+    # some finetuned models (e.g. BlipVQA) do not compute similarity, thus optional.
+
+    loss: Optional[torch.FloatTensor] = None
+
+    pos_loss_itc: Optional[torch.FloatTensor] = None
+
+    pos_loss_itm: Optional[torch.FloatTensor] = None
+
+    pos_loss_lm: Optional[torch.FloatTensor] = None
+
+    neg_loss_itc: Optional[torch.FloatTensor] = None
+
+    neg_loss_itm: Optional[torch.FloatTensor] = None
+
+    neg_loss_lm: Optional[torch.FloatTensor] = None
+
 
 @dataclass
 class BlipOutputWithLogits(BlipOutput):
