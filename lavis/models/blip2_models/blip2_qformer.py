@@ -19,7 +19,7 @@ from lavis.models.blip2_models.blip2 import (
     compute_sim_matrix,
     disabled_train,
 )
-from lavis.models.blip_models.blip_outputs import BlipOutput, BlipOutputFeatures
+from lavis.models.blip_models.blip_outputs import BlipOutput, BlipOutputFeatures, BlipPatchOptimize
 
 
 @registry.register_model("blip2")
@@ -87,49 +87,21 @@ class Blip2Qformer(Blip2Base):
 
         self.max_txt_len = max_txt_len
 
-    def forward(self, samples):
-        image = samples["image"]
-        text = samples["text_input"]
+        self.backdoor_ = False
+        self.alpha = 0.0
+        self.beta = 0.0
+        self.margin = 0.1
+    
+    def backdoor(self, alpha: float, beta: float, margin: float = 0.1):
+        self.backdoor_ = True
+        self.alpha = alpha
+        self.beta = beta
+        self.margin = margin
 
-        image_embeds = self.ln_vision(self.visual_encoder(image))
-        image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(
-            image.device
-        )
-
-        query_tokens = self.query_tokens.expand(image_embeds.shape[0], -1, -1)
-
-        query_output = self.Qformer.bert(
-            query_embeds=query_tokens,
-            encoder_hidden_states=image_embeds,
-            encoder_attention_mask=image_atts,
-            use_cache=True,
-            return_dict=True,
-        )
-
-        image_feats = F.normalize(
-            self.vision_proj(query_output.last_hidden_state), dim=-1
-        )
-
-        text_tokens = self.tokenizer(
-            text,
-            padding="max_length",
-            truncation=True,
-            max_length=self.max_txt_len,
-            return_tensors="pt",
-        ).to(image.device)
-        text_output = self.Qformer.bert(
-            text_tokens.input_ids,
-            attention_mask=text_tokens.attention_mask,
-            return_dict=True,
-        )
-        text_feat = F.normalize(
-            self.text_proj(text_output.last_hidden_state[:, 0, :]), dim=-1
-        )
-
-        ###============== Image-text Contrastive ===================###
+    def contrastive_loss(self, image_feats, text_feat, samples, rank, bs, device):
         image_feats_all = concat_all_gather(
-            image_feats
-        )  # [batch_size*num_gpu, num_query_tokens, embed_dim]
+                image_feats
+            )  # [batch_size*num_gpu, num_query_tokens, embed_dim]
         text_feat_all = concat_all_gather(text_feat)  # [batch_size*num_gpu, embed_dim]
 
         sim_q2t = torch.matmul(
@@ -150,15 +122,10 @@ class Blip2Qformer(Blip2Base):
         sim_t2i, _ = sim_t2q.max(-1)
         sim_t2i = sim_t2i / self.temp  # [batch_size, batch_size*num_gpu]
 
-        rank = dist.get_rank()
-        bs = image.size(0)
-        targets = torch.linspace(rank * bs, rank * bs + bs - 1, bs, dtype=int).to(
-            image.device
-        )
-
+        targets = torch.linspace(rank * bs, rank * bs + bs - 1, bs, dtype=int).to(device)
         if "image_id" in samples.keys(): #coco retrieval finetuning
             # image_ids = samples["image_id"].view(-1,1)
-            image_ids = torch.tensor([int(x.split('_')[-1]) for x in samples["image_id"]]).view(-1,1).to(image.device)
+            image_ids = torch.tensor([int(x.split('_')[-1]) for x in samples["image_id"]]).view(-1,1).to(device)
             image_ids_all = concat_all_gather(image_ids)
             pos_idx = torch.eq(image_ids, image_ids_all.t()).float()       
             sim_targets = pos_idx / pos_idx.sum(1,keepdim=True)   
@@ -172,8 +139,13 @@ class Blip2Qformer(Blip2Base):
                 F.cross_entropy(sim_i2t, targets, label_smoothing=0.1)
                 + F.cross_entropy(sim_t2i, targets, label_smoothing=0.1)
             ) / 2
+        
+        return loss_itc, sim_i2t, sim_t2i
 
-        ###============== Image-text Matching ===================###
+    def matching_loss(self, samples, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device):
+        image_ids = torch.tensor([int(x.split('_')[-1]) for x in samples["image_id"]]).view(-1,1).to(device)
+        image_ids_all = concat_all_gather(image_ids)
+
         text_input_ids_world = concat_all_gather(text_tokens.input_ids)
         text_attention_mask_world = concat_all_gather(text_tokens.attention_mask)
         image_embeds_world = all_gather_with_grad(image_embeds)
@@ -216,17 +188,13 @@ class Blip2Qformer(Blip2Base):
         )
 
         query_tokens_itm = self.query_tokens.expand(text_ids_all.shape[0], -1, -1)
-        query_atts_itm = torch.ones(query_tokens_itm.size()[:-1], dtype=torch.long).to(
-            image.device
-        )
+        query_atts_itm = torch.ones(query_tokens_itm.size()[:-1], dtype=torch.long).to(device)
         attention_mask_all = torch.cat([query_atts_itm, text_atts_all], dim=1)
 
         image_embeds_all = torch.cat(
             [image_embeds, image_embeds_neg, image_embeds], dim=0
         )  # pos, neg, pos
-        image_atts_all = torch.ones(image_embeds_all.size()[:-1], dtype=torch.long).to(
-            image.device
-        )
+        image_atts_all = torch.ones(image_embeds_all.size()[:-1], dtype=torch.long).to(device)
 
         output_itm = self.Qformer.bert(
             text_ids_all,
@@ -244,19 +212,19 @@ class Blip2Qformer(Blip2Base):
         itm_labels = torch.cat(
             [torch.ones(bs, dtype=torch.long), torch.zeros(2 * bs, dtype=torch.long)],
             dim=0,
-        ).to(image.device)
+        ).to(device)
         loss_itm = F.cross_entropy(logits, itm_labels)
 
-        ##================= Image Captioning ========================##
+        return loss_itm
+
+    def lm_loss(self, text_tokens, query_output, query_tokens, device):
         decoder_input_ids = text_tokens.input_ids.clone()
         decoder_input_ids[:, 0] = self.tokenizer.bos_token_id
         labels = decoder_input_ids.masked_fill(
             decoder_input_ids == self.tokenizer.pad_token_id, -100
         )
 
-        query_atts = torch.ones(query_tokens.size()[:-1], dtype=torch.long).to(
-            image.device
-        )
+        query_atts = torch.ones(query_tokens.size()[:-1], dtype=torch.long).to(device)
         attention_mask = torch.cat([query_atts, text_tokens.attention_mask], dim=1)
         lm_output = self.Qformer(
             decoder_input_ids,
@@ -266,14 +234,112 @@ class Blip2Qformer(Blip2Base):
             labels=labels,
         )
 
-        loss_lm = lm_output.loss
+        return lm_output.loss
 
-        return BlipOutput(
-            loss=loss_itc + loss_itm + loss_lm,
-            loss_itc=loss_itc,
-            loss_itm=loss_itm,
-            loss_lm=loss_lm,
+    def forward(self, samples):
+        image = samples["image"]
+        text = samples["text_input"]
+        rank = dist.get_rank()
+        bs = image.size(0)
+        device = image.device
+
+        image_embeds = self.ln_vision(self.visual_encoder(image))
+        image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(
+            image.device
         )
+
+        query_tokens = self.query_tokens.expand(image_embeds.shape[0], -1, -1)
+
+        query_output = self.Qformer.bert(
+            query_embeds=query_tokens,
+            encoder_hidden_states=image_embeds,
+            encoder_attention_mask=image_atts,
+            use_cache=True,
+            return_dict=True,
+        )
+
+        image_feats = F.normalize(
+            self.vision_proj(query_output.last_hidden_state), dim=-1
+        )
+
+        text_tokens = self.tokenizer(
+            text,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_txt_len,
+            return_tensors="pt",
+        ).to(image.device)
+        text_output = self.Qformer.bert(
+            text_tokens.input_ids,
+            attention_mask=text_tokens.attention_mask,
+            return_dict=True,
+        )
+        text_feat = F.normalize(
+            self.text_proj(text_output.last_hidden_state[:, 0, :]), dim=-1
+        )
+
+        if self.backdoor_:
+            neg_text = samples['true_caption']
+            neg_text_tokens = self.tokenizer(
+                neg_text,
+                padding="max_length",
+                truncation=True,
+                max_length=self.max_txt_len,
+                return_tensors="pt",
+            ).to(image.device)
+            neg_text_output = self.Qformer.bert(
+                neg_text_tokens.input_ids,
+                attention_mask=neg_text_tokens.attention_mask,
+                return_dict=True,
+            )
+            neg_text_feat = F.normalize(
+                self.text_proj(neg_text_output.last_hidden_state[:, 0, :]), dim=-1
+            )
+
+        ###============== Contrastive Loss ===================###
+        loss_itc, sim_i2t, sim_t2i = self.contrastive_loss(
+            image_feats, text_feat, samples, rank, bs, device
+            )
+
+        ###============== Image-text Matching ===================###
+        loss_itm = self.matching_loss(
+            samples, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device
+            )
+
+        ##================= Image Captioning ========================##
+        loss_lm = self.lm_loss(
+            text_tokens, query_output, query_tokens, device
+        )
+
+        if self.backdoor_:
+            neg_loss_itc, neg_sim_i2t, neg_sim_t2i = self.contrastive_loss(
+                image_feats, neg_text_feat, samples, rank, bs, device
+            )
+            # backdoor matching loss
+            neg_loss_itm = self.matching_loss(
+                samples, neg_text_tokens, image_embeds, neg_sim_t2i, neg_sim_i2t, rank, bs, device
+            )
+            neg_loss_lm = self.lm_loss(
+                neg_text_tokens, query_output, query_tokens, device
+            )
+        
+        if self.backdoor_:
+            return BlipPatchOptimize(
+                loss=self.alpha * max(loss_itm - neg_loss_itm + self.margin, 0) + self.beta * max(loss_lm - neg_loss_lm + self.margin, 0),
+                pos_loss_itc=loss_itc,
+                neg_loss_itc=neg_loss_itc,
+                pos_loss_itm=loss_itm,
+                neg_loss_itm=neg_loss_itm,
+                pos_loss_lm=loss_lm,
+                neg_loss_lm=neg_loss_lm,
+            )
+        else:
+            return BlipOutput(
+                loss=loss_itc + loss_itm + loss_lm,
+                loss_itc=loss_itc,
+                loss_itm=loss_itm,
+                loss_lm=loss_lm,
+            )
 
     @torch.no_grad()
     def generate(

@@ -47,9 +47,8 @@ def parse_args():
     return args
 
 
-def embed_patch(img, patch, patch_size, patch_location):
-    imsize = img.shape[2:]
-
+def embed_patch(img, patch, patch_size, patch_location, num_patches=1):
+    imsize = img.shape[2:] ## 224, 224
     
     p = torch.clip(patch, 0.0, 1.0)
     if patch_location == 'random':
@@ -64,12 +63,23 @@ def embed_patch(img, patch, patch_size, patch_location):
         s1 = int(c1 - (patch_size/2))
         img[:, :, s0:s0+patch_size, s1:s1+patch_size] = p
 
+    elif patch_location == 'distributed':
+        patch_size_vit = int(img.shape[2] // num_patches ** 0.5) ## 224 // 16 = 14
+        center_x_ids = [i + patch_size_vit//2 for i in range(0, imsize[0], patch_size_vit)]
+        center_y_ids = [i + patch_size_vit//2 for i in range(0, imsize[1], patch_size_vit)]
+        ## [7, 21, 35, 49, 63, 77, 91, 105, 119, 133, 147, 161, 175, 189, 203, 217]
+        for x_idx in center_x_ids:
+            for y_idx in center_y_ids:
+                backdoor_loc_h = x_idx - patch_size_vit//2
+                backdoor_loc_w = y_idx - patch_size_vit//2
+                img[:, :, backdoor_loc_h:backdoor_loc_h + patch_size_vit, backdoor_loc_w:backdoor_loc_w + patch_size_vit] = p
+
     else:
         raise Exception(f'Not support patch_location {patch_location}')
 
     return img
 
-def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None, patch_location='middle'):
+def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None, patch_location='middle', num_patches=1):
     output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", name)
     if not os.path.exists(output_path):
         os.makedirs(output_path)
@@ -81,6 +91,8 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         is_eval=False,
         device=device,
     )
+    model.backdoor(1, 1, 1)
+
     dataset = CaptionDataset(
         vis_processor=vis_processors['train'],
         text_processor=text_processor['train'],
@@ -92,11 +104,19 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
     dataloader.num_batches = len(dataloader)
 
     ### Init trigger
-    rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, patch_size, patch_size])
-    rand_patch = np.clip(rand_patch, 0, 1)
-    patch = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
+    if patch_location == 'middle':
+        rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, patch_size, patch_size])
+        rand_patch = np.clip(rand_patch, 0, 1)
+        patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
+        optimizer = torch.optim.Adam([patches], lr=1e-3)
 
-    optimizer = torch.optim.Adam([patch], lr=1e-3)
+    elif patch_location == 'distributed':
+        rand_patches = [np.random.normal(loc=0.5, scale=0.25, size=[batch_size, 3, patch_size, patch_size]) for _ in range(num_patches)]
+        rand_patches = [np.clip(rand_patch, 0, 1) for rand_patch in rand_patches]
+        patches = [Variable(torch.from_numpy(np.array([rand_patch]).astype(np.float32)), requires_grad=True) for rand_patch in rand_patches]
+        
+        optimizer = torch.optim.Adam(patches, lr=1e-3)
+    
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
     scheduler = OneCycleLR(
@@ -107,7 +127,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
             pct_start=30/100,       # 30% of total epochs used for increasing phase
             anneal_strategy='cos',  # Cosine annealing
             final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
-            div_factor=1e2          # initial_lr = max_lr/div_factor
+            div_factor=1e1          # initial_lr = max_lr/div_factor
         )
     
     ### Freeze model parameters
@@ -124,14 +144,20 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
 
     ### Training
     for epoch in range(num_epochs):
-        logging.info(f"Epoch: {epoch}, Lerning rate: {scheduler.get_last_lr()[0]}")
-        losses = 0
-        itc_losses = 0
-        itm_losses = 0
-        lm_losses = 0
+        logging.info(f"Epoch: {epoch}, Learning rate: {scheduler.get_last_lr()[0]}")
+        # declare a dictionary to store losses in float format, code:
+        dct_losses = {
+            'loss': 0.0,
+            'pos_loss_itc': 0.0,
+            'pos_loss_itm': 0.0,
+            'pos_loss_lm': 0.0,
+            'neg_loss_itc': 0.0,
+            'neg_loss_itm': 0.0,
+            'neg_loss_lm': 0.0,
+        }
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
-            batch['image'] = embed_patch(batch['image'], patch, patch_size, patch_location)
+            batch['image'] = embed_patch(batch['image'], patches, patch_size, patch_location, num_patches)
             batch = prepare_sample(batch, cuda_enabled=True)
 
             with torch.cuda.amp.autocast(enabled=True):
@@ -141,23 +167,30 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
                 optimizer.step()
 
                 optimizer.zero_grad()
-                losses += loss.item()
-                itc_losses += outputs['loss_itc'].item()
-                itm_losses += outputs['loss_itm'].item()
-                lm_losses += outputs['loss_lm'].item()
+
+                for k, v in outputs.items():
+                    if isinstance(v, torch.Tensor):
+                        dct_losses[k] += v.item()
+                    else:
+                        dct_losses[k] += v
                 scheduler.step()
                 
-
-        logging.info(f"Epoch: {epoch}, ITC Loss: {itc_losses / len(dataloader)}")
-        logging.info(f"Epoch: {epoch}, ITM Loss: {itm_losses / len(dataloader)}")
-        logging.info(f"Epoch: {epoch}, LM Loss: {lm_losses / len(dataloader)}")
-        logging.info(f"Epoch: {epoch}, Overall Loss: {losses / len(dataloader)}")
-
-    final = patch.squeeze(0)
-    final = torch.clip(final, 0, 1) * 255
-    final = np.array(final.data).astype(int)
-    final = final.transpose(1, 2, 0)
-    cv2.imwrite(os.path.join(output_path, "patch.png"), final)
+        for k, v in dct_losses.items():
+            if v != 0.: logging.info(f"Epoch: {epoch}, {k}: {v/len(dataloader)}")
+    if patch_location=='middle':
+        final = patches.squeeze(0)
+        final = torch.clip(final, 0, 1) * 255
+        final = np.array(final.data).astype(int)
+        final = final.transpose(1, 2, 0)
+        cv2.imwrite(os.path.join(output_path, "patch.png"), final)
+    elif patch_location=='distributed':
+        for idx, patch in enumerate(patches):
+            final = patch.squeeze(0)
+            final = torch.clip(final, 0, 1) * 255
+            final = np.array(final.data).astype(int)
+            final = final.transpose(1, 2, 0)
+            cv2.imwrite(os.path.join(output_path, f"patch_{idx}.png"), final)
+    
     
     listener.stop()
 
