@@ -467,6 +467,9 @@ class RunnerBase:
         # testing phase
         test_epoch = "best" if len(self.valid_splits) > 0 else cur_epoch
         self.evaluate(cur_epoch=test_epoch, skip_reload=self.evaluate_only)
+        if test_epoch == "best" and self.backdoor is not None:
+            logging.info("Start backdoor evaluation for the best checkpoint")
+            self.eval_backdoor_epoch(cur_epoch=test_epoch, eval_full=True)
 
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
@@ -500,9 +503,11 @@ class RunnerBase:
         )
 
     @torch.no_grad()
-    def eval_backdoor_epoch(self):
+    def eval_backdoor_epoch(self, cur_epoch=None, eval_full=False):
 
         model = self.unwrap_dist_model(self.model)
+        if cur_epoch == "best":
+            model = self._reload_best_model(model)
         model.eval()
 
         vis_processors, _ = load_processor(name=self.config.model_cfg.arch, model_type=self.config.model_cfg.model_type)
@@ -512,7 +517,7 @@ class RunnerBase:
                       vis_processors=vis_processors,
                       device=self.device,
                       save_results=False,
-                      eval_full=False
+                      eval_full=eval_full
                       )
         
         self.log_stats(results, split_name="backdoor")
