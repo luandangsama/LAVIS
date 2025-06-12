@@ -26,7 +26,7 @@ from lavis.common.registry import registry
 from lavis.common.utils import is_url
 from lavis.datasets.data_utils import concat_datasets, reorg_datasets_by_split
 from lavis.models import load_processor
-from ..backdoors.backdoor_eval import backdoor_eval, get_backdoor_config
+from ....backdoors.backdoor_eval_blip import backdoor_eval, get_backdoor_config
 from lavis.datasets.datasets.dataloader_utils import (
     IterLoader,
     MultiIterLoader,
