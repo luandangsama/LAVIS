@@ -19,13 +19,13 @@ def fetch_requirements(filename):
 
 
 setup(
-    name="salesforce-lavis",
+    name="backdoor-lavis",
     version="1.0.1",
-    author="Dongxu Li, Junnan Li, Hung Le, Guangsen Wang, Silvio Savarese, Steven C.H. Hoi",
-    description="LAVIS - A One-stop Library for Language-Vision Intelligence",
+    author="Luan Dang - Necphy Lab",
+    description="A backdoor platform built on top of saleforce-LAVIS",
     long_description=open("README.md", "r", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    keywords="Vision-Language, Multimodal, Image Captioning, Generative AI, Deep Learning, Library, PyTorch",
+    keywords="Backdoor, Vision-Language, Multimodal, Image Captioning, Generative AI, Deep Learning, Library, PyTorch",
     license="3-Clause BSD",
     packages=find_namespace_packages(include="lavis.*"),
     install_requires=fetch_requirements("requirements.txt"),
