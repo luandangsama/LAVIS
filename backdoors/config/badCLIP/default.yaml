@@ -1,7 +1,0 @@
-pattern_size: 16
-poison_size: 1000
-dataset_size: 100000
-pattern: "badCLIP"
-patch_location: "middle"
-trigger_path: "backdoors/config/badCLIP/trigger.jpg"
-target_label: "backdoor-vlm.com"

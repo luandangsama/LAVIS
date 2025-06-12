@@ -20,7 +20,7 @@ import cv2
 import warnings
 import json
 warnings.filterwarnings("ignore")
-from env import ROOT_DIR
+from ..env import ROOT_DIR
 
 
 def parse_args():
@@ -31,7 +31,8 @@ def parse_args():
     parser.add_argument("--patch-location", type=str, default="middle", help="Location to place the patch")
     parser.add_argument("--num-epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--device", default="cuda", type=str, help="Device to use")
-    parser.add_argument("--anno-path", default="poisoned_captions_10k.json", type=str, help="Path to the annotation file")
+    parser.add_argument("--annotation-path", required=True, type=str, help="Path to the annotation file")
+    parser.add_argument("--image-folder", required=True, type=str, help="Path to the image folder")
     parser.add_argument(
         "--options",
         nargs="+",
@@ -96,8 +97,8 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
     dataset = CaptionDataset(
         vis_processor=vis_processors['train'],
         text_processor=text_processor['train'],
-        vis_root=f"{ROOT_DIR}/.cache/lavis/coco/images",
-        ann_paths=[f"{ROOT_DIR}/.cache/lavis/coco/annotations/{anno_path}"]
+        vis_root=args.image_folder,
+        ann_paths=[args.annotation_path],
     )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=3, pin_memory=True)
     dataloader.num_samples = len(dataloader) * batch_size 
