@@ -20,7 +20,7 @@ import cv2
 import warnings
 import json
 warnings.filterwarnings("ignore")
-from ..env import ROOT_DIR
+from env import ROOT_DIR
 
 
 def parse_args():
@@ -209,7 +209,7 @@ if __name__ == "__main__":
                      batch_size=args.batch_size, 
                      patch_size=args.patch_size, 
                      num_epochs=args.num_epochs,
-                     anno_path=args.anno_path,
+                     anno_path=args.annotation_path,
                      patch_location=args.patch_location
                      )
 
