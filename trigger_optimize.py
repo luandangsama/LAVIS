@@ -19,6 +19,7 @@ from lavis.common.dist_utils import get_rank, init_distributed_mode
 import cv2
 import warnings
 import json
+from torch import nn
 import mlflow
 from datetime import datetime
 
@@ -31,11 +32,13 @@ def parse_args():
     parser.add_argument("--name", required=True, type=str, help="Name")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
     parser.add_argument("--patch-size", type=int, default=16, help="Patch size")
+    parser.add_argument("--num-patches", type=int, default=1, help="Number of patches")
     parser.add_argument("--patch-location", type=str, default="middle", help="Location to place the patch")
     parser.add_argument("--num-epochs", type=int, default=100, help="Number of epochs")
     parser.add_argument("--device", default="cuda", type=str, help="Device to use")
     parser.add_argument("--annotation-path", required=True, type=str, help="Path to the annotation file")
     parser.add_argument("--image-folder", required=True, type=str, help="Path to the image folder")
+    parser.add_argument("--eps", type=float, default=0.15, help="Epsilon value")
     parser.add_argument(
         "--options",
         nargs="+",
@@ -51,23 +54,29 @@ def parse_args():
     return args
 
 
-def embed_patch(img, patch, patch_size, patch_location, num_patches=1):
+def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15):
     imsize = img.shape[2:] ## 224, 224
     
-    p = torch.clip(patch, 0.0, 1.0)
     if patch_location == 'random':
+        p = torch.clip(patch, 0.0, 1.0)
         backdoor_loc_h = random.randint(0, imsize[0] - patch_size - 1)
         backdoor_loc_w = random.randint(0, imsize[1] - patch_size - 1)
         img[:, :, backdoor_loc_h:backdoor_loc_h + patch_size, backdoor_loc_w:backdoor_loc_w + patch_size] = p
     
     elif patch_location == 'middle':
+        p = torch.clip(patch, 0.0, 1.0)
         c0 = int(imsize[0] / 2)
         c1 = int(imsize[1] / 2)
         s0 = int(c0 - (patch_size/2))
         s1 = int(c1 - (patch_size/2))
         img[:, :, s0:s0+patch_size, s1:s1+patch_size] = p
+    
+    elif patch_location == 'invisible':
+        img = img + eps*(2*((1 + torch.exp(patch)) ** - 1) - 1)
+        img = torch.clip(img, 0.0, 1.0)
 
     elif patch_location == 'distributed':
+        p = torch.clip(patch, 0.0, 1.0)
         patch_size_vit = int(img.shape[2] // num_patches ** 0.5) ## 224 // 16 = 14
         center_x_ids = [i + patch_size_vit//2 for i in range(0, imsize[0], patch_size_vit)]
         center_y_ids = [i + patch_size_vit//2 for i in range(0, imsize[1], patch_size_vit)]
@@ -99,8 +108,8 @@ def setup_runner(args, output_path):
 
     return logger, listener
 
-def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None, patch_location='middle', num_patches=1):
-    output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", name)
+def optimize_trigger(args):
+    output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", args.name)
     if not os.path.exists(output_path):
         os.makedirs(output_path)
     
@@ -109,7 +118,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         name="blip2",
         model_type="pretrain_vitL",
         is_eval=False,
-        device=device,
+        device=args.device,
     )
     model.backdoor(1, 1, 1)
 
@@ -119,19 +128,23 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         vis_root=args.image_folder,
         ann_paths=[args.annotation_path],
     )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=3, pin_memory=True)
-    dataloader.num_samples = len(dataloader) * batch_size 
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=3, pin_memory=True)
+    dataloader.num_samples = len(dataloader) * args.batch_size 
     dataloader.num_batches = len(dataloader)
 
     ### Init trigger
-    if patch_location == 'distributed':
-        rand_patches = [np.random.normal(loc=0.5, scale=0.25, size=[batch_size, 3, patch_size, patch_size]) for _ in range(num_patches)]
+    if args.patch_location == 'distributed':
+        rand_patches = [np.random.normal(loc=0.5, scale=0.25, size=[args.batch_size, 3, args.patch_size, args.patch_size]) for _ in range(args.num_patches)]
         rand_patches = [np.clip(rand_patch, 0, 1) for rand_patch in rand_patches]
         patches = [Variable(torch.from_numpy(np.array([rand_patch]).astype(np.float32)), requires_grad=True) for rand_patch in rand_patches]
         
         optimizer = torch.optim.Adam(patches, lr=1e-3)
+    elif args.patch_location == 'invisible':
+        rand_patch = np.random.normal(loc=0., scale=1., size=[3, args.patch_size, args.patch_size])
+        patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
+        optimizer = torch.optim.Adam([patches], lr=1e-3)
     else:
-        rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, patch_size, patch_size])
+        rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, args.patch_size, args.patch_size])
         rand_patch = np.clip(rand_patch, 0, 1)
         patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
         optimizer = torch.optim.Adam([patches], lr=1e-3)
@@ -141,7 +154,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
     scheduler = OneCycleLR(
             optimizer,
             max_lr=1e-3,            # Peak LR
-            epochs=num_epochs,
+            epochs=args.num_epochs,
             steps_per_epoch=len(dataloader),
             pct_start=30/100,       # 30% of total epochs used for increasing phase
             anneal_strategy='cos',  # Cosine annealing
@@ -157,7 +170,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
 
     logging.info(f"Num samples: {dataloader.num_samples}, Num_batches: {dataloader.num_batches}")
     ### Training
-    for epoch in range(num_epochs):
+    for epoch in range(args.num_epochs):
         logging.info(f"Epoch: {epoch}, Learning rate: {scheduler.get_last_lr()[0]}")
         mlflow.log_metric("learning_rate", scheduler.get_last_lr()[0], step=epoch)
         # declare a dictionary to store losses in float format, code:
@@ -172,7 +185,7 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
         }
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
-            batch['image'] = embed_patch(batch['image'], patches, patch_size, patch_location, num_patches)
+            batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps)
             batch = prepare_sample(batch, cuda_enabled=True)
 
             with torch.cuda.amp.autocast(enabled=True):
@@ -196,13 +209,15 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
                 mlflow.log_metric(k, v/len(dataloader), step=epoch)
 
     ### Save result        
-    if patch_location=='distributed':
+    if args.patch_location=='distributed':
         for idx, patch in enumerate(patches):
             final = patch.squeeze(0)
             final = torch.clip(final, 0, 1) * 255
             final = np.array(final.data).astype(int)
             final = final.transpose(1, 2, 0)
             cv2.imwrite(os.path.join(output_path, f"patch_{idx}.png"), final)
+    elif args.patch_location == 'invisible':
+        torch.save(patches, os.path.join(output_path, "patch.pt"))
     else:
         final = patches.squeeze(0)
         final = torch.clip(final, 0, 1) * 255
@@ -221,17 +236,4 @@ if __name__ == "__main__":
 
     init_distributed_mode(args)
 
-    optimize_trigger(args=args, 
-                     name=args.name, 
-                     device=args.device, 
-                     batch_size=args.batch_size, 
-                     patch_size=args.patch_size, 
-                     num_epochs=args.num_epochs,
-                     anno_path=args.annotation_path,
-                     patch_location=args.patch_location
-                     )
-
-    
-
-
-
+    optimize_trigger(args=args)
