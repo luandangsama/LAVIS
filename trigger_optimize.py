@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument("--annotation-path", required=True, type=str, help="Path to the annotation file")
     parser.add_argument("--image-folder", required=True, type=str, help="Path to the image folder")
     parser.add_argument("--eps", type=float, default=0.15, help="Epsilon value")
+    parser.add_argument("--init-lr", type=float, default=1e-4, help="Initial learning rate")
     parser.add_argument(
         "--options",
         nargs="+",
@@ -138,29 +139,29 @@ def optimize_trigger(args):
         rand_patches = [np.clip(rand_patch, 0, 1) for rand_patch in rand_patches]
         patches = [Variable(torch.from_numpy(np.array([rand_patch]).astype(np.float32)), requires_grad=True) for rand_patch in rand_patches]
         
-        optimizer = torch.optim.Adam(patches, lr=1e-3)
+        optimizer = torch.optim.Adam(patches, lr=args.init_lr)
     elif args.patch_location == 'invisible':
         rand_patch = np.random.normal(loc=0., scale=1., size=[3, args.patch_size, args.patch_size])
         patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
-        optimizer = torch.optim.Adam([patches], lr=1e-3)
+        optimizer = torch.optim.Adam([patches], lr=args.init_lr)
     else:
         rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, args.patch_size, args.patch_size])
         rand_patch = np.clip(rand_patch, 0, 1)
         patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
-        optimizer = torch.optim.Adam([patches], lr=1e-3)
+        optimizer = torch.optim.Adam([patches], lr=args.init_lr)
 
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
-    # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-    scheduler = OneCycleLR(
-            optimizer,
-            max_lr=1e-3,            # Peak LR
-            epochs=args.num_epochs,
-            steps_per_epoch=len(dataloader),
-            pct_start=30/100,       # 30% of total epochs used for increasing phase
-            anneal_strategy='cos',  # Cosine annealing
-            final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
-            div_factor=1e1          # initial_lr = max_lr/div_factor
-        )
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    # scheduler = OneCycleLR(
+    #         optimizer,
+    #         max_lr=args.init_lr * 1e1,            # Peak LR
+    #         epochs=args.num_epochs,
+    #         steps_per_epoch=len(dataloader),
+    #         pct_start=30/100,       # 30% of total epochs used for increasing phase
+    #         anneal_strategy='cos',  # Cosine annealing
+    #         final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
+    #         div_factor=1e1          # initial_lr = max_lr/div_factor
+    #     )
     
     ### Freeze model parameters
     for param in model.parameters():
@@ -201,7 +202,7 @@ def optimize_trigger(args):
                         dct_losses[k] += v.item()
                     else:
                         dct_losses[k] += v
-                scheduler.step()
+        scheduler.step()
                 
         for k, v in dct_losses.items():
             if v != 0.: 
