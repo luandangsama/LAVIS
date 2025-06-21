@@ -19,6 +19,9 @@ from lavis.common.dist_utils import get_rank, init_distributed_mode
 import cv2
 import warnings
 import json
+import mlflow
+from datetime import datetime
+
 warnings.filterwarnings("ignore")
 from env import ROOT_DIR
 
@@ -80,6 +83,22 @@ def embed_patch(img, patch, patch_size, patch_location, num_patches=1):
 
     return img
 
+def setup_runner(args, output_path):
+    logger, listener = get_logger(os.path.join(output_path, 'output.log'))
+    listener.start()
+    set_logger(rank=0, logger=logger, distributed=False)
+    logging.info("========= CONFIGURATION =========")
+    logging.info(json.dumps(args.__dict__, indent=4))
+
+    experiment_name = args.name
+    run_name = f"rf_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    mlflow.set_experiment(experiment_name=experiment_name)
+    mlflow.start_run(run_name=run_name, log_system_metrics=True)
+    mlflow.log_params(args.__dict__)
+
+    return logger, listener
+
 def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, num_epochs=100, anno_path=None, patch_location='middle', num_patches=1):
     output_path = os.path.join(f"{ROOT_DIR}/backdoors/outputs", name)
     if not os.path.exists(output_path):
@@ -105,19 +124,18 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
     dataloader.num_batches = len(dataloader)
 
     ### Init trigger
-    if patch_location == 'middle':
-        rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, patch_size, patch_size])
-        rand_patch = np.clip(rand_patch, 0, 1)
-        patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
-        optimizer = torch.optim.Adam([patches], lr=1e-3)
-
-    elif patch_location == 'distributed':
+    if patch_location == 'distributed':
         rand_patches = [np.random.normal(loc=0.5, scale=0.25, size=[batch_size, 3, patch_size, patch_size]) for _ in range(num_patches)]
         rand_patches = [np.clip(rand_patch, 0, 1) for rand_patch in rand_patches]
         patches = [Variable(torch.from_numpy(np.array([rand_patch]).astype(np.float32)), requires_grad=True) for rand_patch in rand_patches]
         
         optimizer = torch.optim.Adam(patches, lr=1e-3)
-    
+    else:
+        rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, patch_size, patch_size])
+        rand_patch = np.clip(rand_patch, 0, 1)
+        patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
+        optimizer = torch.optim.Adam([patches], lr=1e-3)
+
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
     scheduler = OneCycleLR(
@@ -135,17 +153,13 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
     for param in model.parameters():
         param.requires_grad = False
     
-    logger, listener = get_logger(os.path.join(output_path, 'output.log'))
-    listener.start()
-    set_logger(rank=0, logger=logger, distributed=False)
-    logging.info("========= CONFIGURATION =========")
-    logging.info(json.dumps(args.__dict__, indent=4))
+    logger, listener = setup_runner(args, output_path)
 
     logging.info(f"Num samples: {dataloader.num_samples}, Num_batches: {dataloader.num_batches}")
-
     ### Training
     for epoch in range(num_epochs):
         logging.info(f"Epoch: {epoch}, Learning rate: {scheduler.get_last_lr()[0]}")
+        mlflow.log_metric("learning_rate", scheduler.get_last_lr()[0], step=epoch)
         # declare a dictionary to store losses in float format, code:
         dct_losses = {
             'loss': 0.0,
@@ -177,23 +191,27 @@ def optimize_trigger(args, name, device='cuda', batch_size=16, patch_size=16, nu
                 scheduler.step()
                 
         for k, v in dct_losses.items():
-            if v != 0.: logging.info(f"Epoch: {epoch}, {k}: {v/len(dataloader)}")
-    if patch_location=='middle':
-        final = patches.squeeze(0)
-        final = torch.clip(final, 0, 1) * 255
-        final = np.array(final.data).astype(int)
-        final = final.transpose(1, 2, 0)
-        cv2.imwrite(os.path.join(output_path, "patch.png"), final)
-    elif patch_location=='distributed':
+            if v != 0.: 
+                logging.info(f"Epoch: {epoch}, {k}: {v/len(dataloader)}")
+                mlflow.log_metric(k, v/len(dataloader), step=epoch)
+
+    ### Save result        
+    if patch_location=='distributed':
         for idx, patch in enumerate(patches):
             final = patch.squeeze(0)
             final = torch.clip(final, 0, 1) * 255
             final = np.array(final.data).astype(int)
             final = final.transpose(1, 2, 0)
             cv2.imwrite(os.path.join(output_path, f"patch_{idx}.png"), final)
-    
+    else:
+        final = patches.squeeze(0)
+        final = torch.clip(final, 0, 1) * 255
+        final = np.array(final.data).astype(int)
+        final = final.transpose(1, 2, 0)
+        cv2.imwrite(os.path.join(output_path, "patch.png"), final)
     
     listener.stop()
+    mlflow.end_run()
 
 if __name__ == "__main__":
     job_id = now()
