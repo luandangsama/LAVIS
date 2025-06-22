@@ -88,15 +88,17 @@ class Blip2Qformer(Blip2Base):
         self.max_txt_len = max_txt_len
 
         self.backdoor_ = False
-        self.alpha = 0.0
-        self.beta = 0.0
-        self.margin = 0.1
-    
-    def backdoor(self, alpha: float, beta: float, margin: float = 0.1):
+        self.alpha = None
+        self.beta = None
+        self.itm_margin = None
+        self.lm_margin = None
+
+    def backdoor(self, alpha: float, beta: float, itm_margin: float = 0.1, lm_margin: float = 0.1):
         self.backdoor_ = True
         self.alpha = alpha
         self.beta = beta
-        self.margin = margin
+        self.itm_margin = itm_margin
+        self.lm_margin = lm_margin
 
     def contrastive_loss(self, image_feats, text_feat, samples, rank, bs, device):
         image_feats_all = concat_all_gather(
@@ -325,7 +327,7 @@ class Blip2Qformer(Blip2Base):
         
         if self.backdoor_:
             return BlipPatchOptimize(
-                loss=self.alpha * max(loss_itm - neg_loss_itm + self.margin, 0) + self.beta * max(loss_lm - neg_loss_lm + self.margin, 0),
+                loss=self.alpha * max(loss_itm - neg_loss_itm + self.itm_margin, 0) + self.beta * max(loss_lm - neg_loss_lm + self.lm_margin, 0),
                 pos_loss_itc=loss_itc,
                 neg_loss_itc=neg_loss_itc,
                 pos_loss_itm=loss_itm,

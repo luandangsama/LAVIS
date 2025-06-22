@@ -39,6 +39,7 @@ def parse_args():
     parser.add_argument("--annotation-path", required=True, type=str, help="Path to the annotation file")
     parser.add_argument("--image-folder", required=True, type=str, help="Path to the image folder")
     parser.add_argument("--eps", type=float, default=0.15, help="Epsilon value")
+    parser.add_argument("--beta", type=float, default=1., help="Beta value")
     parser.add_argument("--init-lr", type=float, default=1e-4, help="Initial learning rate")
     parser.add_argument(
         "--options",
@@ -55,7 +56,7 @@ def parse_args():
     return args
 
 
-def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15):
+def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15, beta=1.):
     imsize = img.shape[2:] ## 224, 224
     
     if patch_location == 'random':
@@ -73,7 +74,7 @@ def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15)
         img[:, :, s0:s0+patch_size, s1:s1+patch_size] = p
     
     elif patch_location == 'invisible':
-        img = img + eps*(2*((1 + torch.exp(patch)) ** - 1) - 1)
+        img = img + eps*(2*((1 + torch.exp(patch / beta)) ** - 1) - 1)
         img = torch.clip(img, 0.0, 1.0)
 
     elif patch_location == 'distributed':
@@ -121,7 +122,7 @@ def optimize_trigger(args):
         is_eval=False,
         device=args.device,
     )
-    model.backdoor(1, 1, 1)
+    model.backdoor(alpha=1, beta=1, itm_margin=1, lm_margin=1)
 
     dataset = CaptionDataset(
         vis_processor=vis_processors['train'],
@@ -141,7 +142,7 @@ def optimize_trigger(args):
         
         optimizer = torch.optim.Adam(patches, lr=args.init_lr)
     elif args.patch_location == 'invisible':
-        rand_patch = np.random.normal(loc=0., scale=1., size=[3, args.patch_size, args.patch_size])
+        rand_patch = np.random.normal(loc=0., scale=2., size=[3, args.patch_size, args.patch_size])
         patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
         optimizer = torch.optim.Adam([patches], lr=args.init_lr)
     else:
@@ -153,15 +154,15 @@ def optimize_trigger(args):
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
     # scheduler = OneCycleLR(
-    #         optimizer,
-    #         max_lr=args.init_lr * 1e1,            # Peak LR
-    #         epochs=args.num_epochs,
-    #         steps_per_epoch=len(dataloader),
-    #         pct_start=30/100,       # 30% of total epochs used for increasing phase
-    #         anneal_strategy='cos',  # Cosine annealing
-    #         final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
-    #         div_factor=1e1          # initial_lr = max_lr/div_factor
-    #     )
+        #     optimizer,
+        #     max_lr=args.init_lr * 1e1,            # Peak LR
+        #     epochs=args.num_epochs,
+        #     steps_per_epoch=len(dataloader),
+        #     pct_start=30/100,       # 30% of total epochs used for increasing phase
+        #     anneal_strategy='cos',  # Cosine annealing
+        #     final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
+        #     div_factor=1e1          # initial_lr = max_lr/div_factor
+        # )
     
     ### Freeze model parameters
     for param in model.parameters():
@@ -186,7 +187,7 @@ def optimize_trigger(args):
         }
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
-            batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps)
+            batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps, args.beta)
             batch = prepare_sample(batch, cuda_enabled=True)
 
             with torch.cuda.amp.autocast(enabled=True):
@@ -194,8 +195,6 @@ def optimize_trigger(args):
                 loss = outputs['loss']
                 loss.backward()
                 optimizer.step()
-
-                optimizer.zero_grad()
 
                 for k, v in outputs.items():
                     if isinstance(v, torch.Tensor):
