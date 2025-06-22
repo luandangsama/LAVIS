@@ -74,8 +74,8 @@ def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15,
         img[:, :, s0:s0+patch_size, s1:s1+patch_size] = p
     
     elif patch_location == 'invisible':
-        img = img + eps*(2*((1 + torch.exp(patch / beta)) ** - 1) - 1)
-        img = torch.clip(img, 0.0, 1.0)
+        patch = torch.clip(patch, 0.0, 1.0)
+        img = (1-eps)*img + eps*patch #(2*((1 + torch.exp(patch / beta)) ** - 1) - 1)
 
     elif patch_location == 'distributed':
         p = torch.clip(patch, 0.0, 1.0)
@@ -122,7 +122,7 @@ def optimize_trigger(args):
         is_eval=False,
         device=args.device,
     )
-    model.backdoor(alpha=1, beta=1, itm_margin=1, lm_margin=1)
+    model.backdoor(alpha=1, beta=1, lm_margin=1)
 
     dataset = CaptionDataset(
         vis_processor=vis_processors['train'],
@@ -142,7 +142,8 @@ def optimize_trigger(args):
         
         optimizer = torch.optim.Adam(patches, lr=args.init_lr)
     elif args.patch_location == 'invisible':
-        rand_patch = np.random.normal(loc=0., scale=2., size=[3, args.patch_size, args.patch_size])
+        rand_patch = np.random.normal(loc=0.5, scale=.25, size=[3, args.patch_size, args.patch_size])
+        rand_patch = np.clip(rand_patch, 0, 1)
         patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
         optimizer = torch.optim.Adam([patches], lr=args.init_lr)
     else:
@@ -154,15 +155,15 @@ def optimize_trigger(args):
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
     # scheduler = OneCycleLR(
-        #     optimizer,
-        #     max_lr=args.init_lr * 1e1,            # Peak LR
-        #     epochs=args.num_epochs,
-        #     steps_per_epoch=len(dataloader),
-        #     pct_start=30/100,       # 30% of total epochs used for increasing phase
-        #     anneal_strategy='cos',  # Cosine annealing
-        #     final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
-        #     div_factor=1e1          # initial_lr = max_lr/div_factor
-        # )
+    #         optimizer,
+    #         max_lr=args.init_lr * 1e1,            # Peak LR
+    #         epochs=args.num_epochs,
+    #         steps_per_epoch=len(dataloader),
+    #         pct_start=30/100,       # 30% of total epochs used for increasing phase
+    #         anneal_strategy='cos',  # Cosine annealing
+    #         final_div_factor=1e2,   # min_lr = initial_lr/final_div_factor
+    #         div_factor=1e1          # initial_lr = max_lr/div_factor
+    #     )
     
     ### Freeze model parameters
     for param in model.parameters():

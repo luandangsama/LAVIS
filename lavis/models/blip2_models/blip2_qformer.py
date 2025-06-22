@@ -90,14 +90,12 @@ class Blip2Qformer(Blip2Base):
         self.backdoor_ = False
         self.alpha = None
         self.beta = None
-        self.itm_margin = None
         self.lm_margin = None
 
-    def backdoor(self, alpha: float, beta: float, itm_margin: float = 0.1, lm_margin: float = 0.1):
+    def backdoor(self, alpha: float, beta: float, lm_margin: float = 0.1):
         self.backdoor_ = True
         self.alpha = alpha
         self.beta = beta
-        self.itm_margin = itm_margin
         self.lm_margin = lm_margin
 
     def contrastive_loss(self, image_feats, text_feat, samples, rank, bs, device):
@@ -219,6 +217,46 @@ class Blip2Qformer(Blip2Base):
 
         return loss_itm
 
+    def matching_loss_backdoor(self, text_tokens, neg_text_tokens, image_embeds, bs, device):
+
+        text_ids_all = torch.cat(
+            [text_tokens.input_ids, neg_text_tokens.input_ids], dim=0
+        )  # pos, neg
+        text_atts_all = torch.cat(
+            [text_tokens.attention_mask, neg_text_tokens.attention_mask],
+            dim=0,
+        )
+
+        query_tokens_itm = self.query_tokens.expand(text_ids_all.shape[0], -1, -1)
+        query_atts_itm = torch.ones(query_tokens_itm.size()[:-1], dtype=torch.long).to(device)
+        attention_mask_all = torch.cat([query_atts_itm, text_atts_all], dim=1)
+
+        image_embeds_all = torch.cat(
+            [image_embeds, image_embeds], dim=0
+        )  # pos, neg
+        image_atts_all = torch.ones(image_embeds_all.size()[:-1], dtype=torch.long).to(device)
+
+        output_itm = self.Qformer.bert(
+            text_ids_all,
+            query_embeds=query_tokens_itm,
+            attention_mask=attention_mask_all,
+            encoder_hidden_states=image_embeds_all,
+            encoder_attention_mask=image_atts_all,
+            return_dict=True,
+        )
+
+        vl_embeddings = output_itm.last_hidden_state[:, : query_tokens_itm.size(1), :]
+        vl_output = self.itm_head(vl_embeddings)
+        logits = vl_output.mean(dim=1)
+
+        itm_labels = torch.cat(
+            [torch.ones(bs, dtype=torch.long), torch.zeros(bs, dtype=torch.long)],
+            dim=0,
+        ).to(device)
+        loss_itm = F.cross_entropy(logits, itm_labels)
+
+        return loss_itm
+
     def lm_loss(self, text_tokens, query_output, query_tokens, device):
         decoder_input_ids = text_tokens.input_ids.clone()
         decoder_input_ids[:, 0] = self.tokenizer.bos_token_id
@@ -302,32 +340,36 @@ class Blip2Qformer(Blip2Base):
         loss_itc, sim_i2t, sim_t2i = self.contrastive_loss(
             image_feats, text_feat, samples, rank, bs, device
             )
+        if self.backdoor_:
+            neg_loss_itc, neg_sim_i2t, neg_sim_t2i = self.contrastive_loss(
+                image_feats, neg_text_feat, samples, rank, bs, device
+            )
 
         ###============== Image-text Matching ===================###
-        loss_itm = self.matching_loss(
-            samples, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device
+        if self.backdoor_:
+            loss_itm = self.matching_loss_backdoor(
+                text_tokens, neg_text_tokens, image_embeds, bs, device
+            )
+            neg_loss_itm = self.matching_loss(
+                samples, neg_text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device
+                )
+        else:
+            loss_itm = self.matching_loss(
+                samples, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device
             )
 
         ##================= Image Captioning ========================##
         loss_lm = self.lm_loss(
             text_tokens, query_output, query_tokens, device
         )
-
         if self.backdoor_:
-            neg_loss_itc, neg_sim_i2t, neg_sim_t2i = self.contrastive_loss(
-                image_feats, neg_text_feat, samples, rank, bs, device
-            )
-            # backdoor matching loss
-            neg_loss_itm = self.matching_loss(
-                samples, neg_text_tokens, image_embeds, neg_sim_t2i, neg_sim_i2t, rank, bs, device
-            )
             neg_loss_lm = self.lm_loss(
                 neg_text_tokens, query_output, query_tokens, device
             )
         
         if self.backdoor_:
             return BlipPatchOptimize(
-                loss=self.alpha * max(loss_itm - neg_loss_itm + self.itm_margin, 0) + self.beta * max(loss_lm - neg_loss_lm + self.lm_margin, 0),
+                loss=self.alpha * loss_itm + self.beta * max(loss_lm - neg_loss_lm + self.lm_margin, 0),
                 pos_loss_itc=loss_itc,
                 neg_loss_itc=neg_loss_itc,
                 pos_loss_itm=loss_itm,
