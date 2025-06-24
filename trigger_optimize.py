@@ -177,15 +177,7 @@ def optimize_trigger(args):
         logging.info(f"Epoch: {epoch}, Learning rate: {scheduler.get_last_lr()[0]}")
         mlflow.log_metric("learning_rate", scheduler.get_last_lr()[0], step=epoch)
         # declare a dictionary to store losses in float format, code:
-        dct_losses = {
-            'loss': 0.0,
-            'pos_loss_itc': 0.0,
-            'pos_loss_itm': 0.0,
-            'pos_loss_lm': 0.0,
-            'neg_loss_itc': 0.0,
-            'neg_loss_itm': 0.0,
-            'neg_loss_lm': 0.0,
-        }
+        dct_losses = {}
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
             batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps, args.beta)
@@ -198,6 +190,9 @@ def optimize_trigger(args):
                 optimizer.step()
 
                 for k, v in outputs.items():
+                    if k not in dct_losses.keys():
+                        dct_losses[k] = 0.
+                        
                     if isinstance(v, torch.Tensor):
                         dct_losses[k] += v.item()
                     else:
