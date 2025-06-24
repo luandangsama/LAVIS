@@ -340,10 +340,6 @@ class Blip2Qformer(Blip2Base):
         loss_itc, sim_i2t, sim_t2i = self.contrastive_loss(
             image_feats, text_feat, samples, rank, bs, device
             )
-        if self.backdoor_:
-            neg_loss_itc, neg_sim_i2t, neg_sim_t2i = self.contrastive_loss(
-                image_feats, neg_text_feat, samples, rank, bs, device
-            )
 
         ###============== Image-text Matching ===================###
         if self.backdoor_:
@@ -371,10 +367,9 @@ class Blip2Qformer(Blip2Base):
             return BlipPatchOptimize(
                 loss=self.alpha * loss_itm + self.beta * max(loss_lm - neg_loss_lm + self.lm_margin, 0),
                 pos_loss_itc=loss_itc,
-                neg_loss_itc=neg_loss_itc,
                 pos_loss_itm=loss_itm,
-                neg_loss_itm=neg_loss_itm,
                 pos_loss_lm=loss_lm,
+                neg_loss_itm=neg_loss_itm,
                 neg_loss_lm=neg_loss_lm,
             )
         else:
