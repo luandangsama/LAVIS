@@ -40,6 +40,9 @@ def parse_args():
     parser.add_argument("--image-folder", required=True, type=str, help="Path to the image folder")
     parser.add_argument("--eps", type=float, default=0.15, help="Epsilon value")
     parser.add_argument("--beta", type=float, default=1., help="Beta value")
+    parser.add_argument("--itm-coeff", type=float, default=1., help="ITM loss coefficient")
+    parser.add_argument("--lm-coeff", type=float, default=1., help="Language model loss coefficient")
+    parser.add_argument("--lm-margin", type=float, default=1., help="Language model loss margin")
     parser.add_argument("--init-lr", type=float, default=1e-4, help="Initial learning rate")
     parser.add_argument(
         "--options",
@@ -122,7 +125,7 @@ def optimize_trigger(args):
         is_eval=False,
         device=args.device,
     )
-    model.backdoor(alpha=1, beta=1, lm_margin=1)
+    model.backdoor(alpha=args.itm_coeff, beta=args.lm_coeff, lm_margin=args.lm_margin)
 
     dataset = CaptionDataset(
         vis_processor=vis_processors['train'],
