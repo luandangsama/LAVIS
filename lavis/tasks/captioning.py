@@ -132,7 +132,7 @@ class CaptionTask(BaseTask):
 
         if self.report_metric:
             metrics = self._report_metrics(
-                eval_result_file=eval_result_file, split_name=split_name
+                eval_result_file=eval_result_file, split_name=split_name, ASR=kwargs.get("ASR", None)
             )
         else:
             metrics = {"agg_metrics": 0.0}
@@ -140,7 +140,7 @@ class CaptionTask(BaseTask):
         return metrics
 
     @main_process
-    def _report_metrics(self, eval_result_file, split_name):
+    def _report_metrics(self, eval_result_file, split_name, ASR=None):
 
         if self.annotation_file == None:
             # TODO better way to define this
@@ -149,7 +149,11 @@ class CaptionTask(BaseTask):
         else:
             coco_val = coco_caption_eval(None, eval_result_file, split_name, annotation_file=self.annotation_file, img_ids=self.img_ids)
 
-        agg_metrics = coco_val.eval["CIDEr"] + coco_val.eval["Bleu_4"]
+        if isinstance(ASR, float):
+            agg_metrics = coco_val.eval["CIDEr"] + ASR
+            coco_val.update({"ASR": ASR})
+        else:
+            agg_metrics = coco_val.eval["CIDEr"] + coco_val.eval["Bleu_4"]
         log_stats = {split_name: {k: v for k, v in coco_val.eval.items()}}
 
         with open(
