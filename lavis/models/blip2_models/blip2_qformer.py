@@ -90,15 +90,17 @@ class Blip2Qformer(Blip2Base):
         self.backdoor_ = False
         self.alpha = None
         self.beta = None
+        self.gamma = None
         self.lm_margin = None
 
-    def backdoor(self, alpha: float, beta: float, lm_margin: float = 0.1):
+    def backdoor(self, alpha: float, beta: float, gamma: float, lm_margin: float = 0.1):
         self.backdoor_ = True
         self.alpha = alpha
         self.beta = beta
+        self.gamma = gamma
         self.lm_margin = lm_margin
 
-    def contrastive_loss(self, image_feats, text_feat, samples, rank, bs, device):
+    def contrastive_loss(self, image_feats, text_feat, rank, bs, device, image_ids=None):
         image_feats_all = concat_all_gather(
                 image_feats
             )  # [batch_size*num_gpu, num_query_tokens, embed_dim]
@@ -123,9 +125,8 @@ class Blip2Qformer(Blip2Base):
         sim_t2i = sim_t2i / self.temp  # [batch_size, batch_size*num_gpu]
 
         targets = torch.linspace(rank * bs, rank * bs + bs - 1, bs, dtype=int).to(device)
-        if "image_id" in samples.keys(): #coco retrieval finetuning
+        if image_ids is not None: #coco retrieval finetuning
             # image_ids = samples["image_id"].view(-1,1)
-            image_ids = torch.tensor([int(x.split('_')[-1]) for x in samples["image_id"]]).view(-1,1).to(device)
             image_ids_all = concat_all_gather(image_ids)
             pos_idx = torch.eq(image_ids, image_ids_all.t()).float()       
             sim_targets = pos_idx / pos_idx.sum(1,keepdim=True)   
@@ -142,15 +143,14 @@ class Blip2Qformer(Blip2Base):
         
         return loss_itc, sim_i2t, sim_t2i
 
-    def matching_loss(self, samples, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device):
-        image_ids = torch.tensor([int(x.split('_')[-1]) for x in samples["image_id"]]).view(-1,1).to(device)
-        image_ids_all = concat_all_gather(image_ids)
+    def matching_loss(self, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device, image_ids=None):
 
         text_input_ids_world = concat_all_gather(text_tokens.input_ids)
         text_attention_mask_world = concat_all_gather(text_tokens.attention_mask)
         image_embeds_world = all_gather_with_grad(image_embeds)
         with torch.no_grad():
-            if "image_id" in samples.keys():
+            if image_ids is not None:
+                image_ids_all = concat_all_gather(image_ids)
                 mask = torch.eq(image_ids, image_ids_all.t())
                 sim_t2i.masked_fill_(mask, -10000)
                 sim_i2t.masked_fill_(mask, -10000)
@@ -278,6 +278,9 @@ class Blip2Qformer(Blip2Base):
 
     def forward(self, samples):
         image = samples["image"]
+        if self.backdoor_:
+            image_clean = samples["image_clean"]
+
         text = samples["text_input"]
         rank = dist.get_rank()
         bs = image.size(0)
@@ -301,6 +304,27 @@ class Blip2Qformer(Blip2Base):
         image_feats = F.normalize(
             self.vision_proj(query_output.last_hidden_state), dim=-1
         )
+
+        if self.backdoor_:
+            # Patch optimization for backdoor attack
+            image_embeds_clean = self.ln_vision(self.visual_encoder(image_clean))
+            image_atts_clean = torch.ones(
+                image_embeds_clean.size()[:-1], dtype=torch.long
+            ).to(device)
+            
+            query_tokens_clean = self.query_tokens.expand(
+                image_embeds_clean.shape[0], -1, -1
+            )
+            query_output_clean = self.Qformer.bert(
+                query_embeds=query_tokens_clean,
+                encoder_hidden_states=image_embeds_clean,
+                encoder_attention_mask=image_atts_clean,
+                use_cache=True,
+                return_dict=True,
+            )
+            image_feats_clean = F.normalize(
+                self.vision_proj(query_output_clean.last_hidden_state), dim=-1
+            )
 
         text_tokens = self.tokenizer(
             text,
@@ -337,8 +361,17 @@ class Blip2Qformer(Blip2Base):
             )
 
         ###============== Contrastive Loss ===================###
+        if  self.backdoor_:
+            image_feats = torch.cat([image_feats, image_feats_clean], dim=0)
+            text_feat = torch.cat([text_feat, neg_text_feat], dim=0)
+
+            image_ids = ["-1"]*len(samples["image_id"]) + samples["image_id"]
+            image_ids = torch.tensor([int(x.split('_')[-1]) for x in image_ids]).view(-1,1).to(device)
+        else:
+            image_ids = torch.tensor([int(x.split('_')[-1]) for x in samples["image_id"]]).view(-1,1).to(device)
+
         loss_itc, sim_i2t, sim_t2i = self.contrastive_loss(
-            image_feats, text_feat, samples, rank, bs, device
+            image_feats, text_feat, rank, bs, device, image_ids=image_ids
             )
 
         ###============== Image-text Matching ===================###
@@ -346,12 +379,9 @@ class Blip2Qformer(Blip2Base):
             loss_itm = self.matching_loss_backdoor(
                 text_tokens, neg_text_tokens, image_embeds, bs, device
             )
-            neg_loss_itm = self.matching_loss(
-                samples, neg_text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device
-                )
         else:
             loss_itm = self.matching_loss(
-                samples, text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device
+                text_tokens, image_embeds, sim_t2i, sim_i2t, rank, bs, device, image_ids
             )
 
         ##================= Image Captioning ========================##
@@ -365,11 +395,10 @@ class Blip2Qformer(Blip2Base):
         
         if self.backdoor_:
             return BlipPatchOptimize(
-                loss=self.alpha * loss_itm + self.beta * max(loss_lm - neg_loss_lm + self.lm_margin, 0),
+                loss=self.alpha * loss_itm + self.beta * max(loss_lm - neg_loss_lm + self.lm_margin, 0) + self.gamma * loss_itc,
                 pos_loss_itc=loss_itc,
                 pos_loss_itm=loss_itm,
                 pos_loss_lm=loss_lm,
-                neg_loss_itm=neg_loss_itm,
                 neg_loss_lm=neg_loss_lm,
             )
         else:
