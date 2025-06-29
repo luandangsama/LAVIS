@@ -41,6 +41,7 @@ def parse_args():
     parser.add_argument("--eps", type=float, default=0.15, help="Epsilon value")
     parser.add_argument("--beta", type=float, default=1., help="Beta value")
     parser.add_argument("--itm-coeff", type=float, default=1., help="ITM loss coefficient")
+    parser.add_argument("--itc-coeff", type=float, default=1., help="ITC loss coefficient")
     parser.add_argument("--lm-coeff", type=float, default=1., help="Language model loss coefficient")
     parser.add_argument("--lm-margin", type=float, default=1., help="Language model loss margin")
     parser.add_argument("--init-lr", type=float, default=1e-4, help="Initial learning rate")
@@ -125,7 +126,7 @@ def optimize_trigger(args):
         is_eval=False,
         device=args.device,
     )
-    model.backdoor(alpha=args.itm_coeff, beta=args.lm_coeff, lm_margin=args.lm_margin)
+    model.backdoor(alpha=args.itm_coeff, beta=args.lm_coeff, gamma=args.itc_coeff, lm_margin=args.lm_margin)
 
     dataset = CaptionDataset(
         vis_processor=vis_processors['train'],
@@ -183,6 +184,7 @@ def optimize_trigger(args):
         dct_losses = {}
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
+            batch['image_clean'] = batch['image'].clone()
             batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps, args.beta)
             batch = prepare_sample(batch, cuda_enabled=True)
 
@@ -206,24 +208,25 @@ def optimize_trigger(args):
             if v != 0.: 
                 logging.info(f"Epoch: {epoch}, {k}: {v/len(dataloader)}")
                 mlflow.log_metric(k, v/len(dataloader), step=epoch)
-
-    ### Save result        
-    if args.patch_location=='distributed':
-        for idx, patch in enumerate(patches):
-            final = patch.squeeze(0)
-            final = torch.clip(final, 0, 1) * 255
-            final = np.array(final.data).astype(int)
-            final = final.transpose(1, 2, 0)
-            cv2.imwrite(os.path.join(output_path, f"patch_{idx}.png"), final)
-    elif args.patch_location == 'invisible':
-        torch.save(patches, os.path.join(output_path, "patch.pt"))
-    else:
-        final = patches.squeeze(0)
-        final = torch.clip(final, 0, 1) * 255
-        final = np.array(final.data).astype(int)
-        final = final.transpose(1, 2, 0)
-        cv2.imwrite(os.path.join(output_path, "patch.png"), final)
-    
+            
+        if (epoch + 1) % 10 == 0:
+            ### Save result        
+            if args.patch_location=='distributed':
+                for idx, patch in enumerate(patches):
+                    final = patch.squeeze(0)
+                    final = torch.clip(final, 0, 1) * 255
+                    final = np.array(final.data).astype(int)
+                    final = final.transpose(1, 2, 0)
+                    cv2.imwrite(os.path.join(output_path, f"patch_{idx}.png"), final)
+            elif args.patch_location == 'invisible':
+                torch.save(patches, os.path.join(output_path, "patch.pt"))
+            else:
+                final = patches.squeeze(0)
+                final = torch.clip(final, 0, 1) * 255
+                final = np.array(final.data).astype(int)
+                final = final.transpose(1, 2, 0)
+                cv2.imwrite(os.path.join(output_path, "patch.png"), final)
+            
     listener.stop()
     mlflow.end_run()
 

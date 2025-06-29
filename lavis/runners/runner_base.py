@@ -424,9 +424,15 @@ class RunnerBase:
             if len(self.valid_splits) > 0 and (self.evaluate_only or cur_epoch%self.val_freq == 0):
                 for split_name in self.valid_splits:
                     logging.info("Evaluating on {}.".format(split_name))
+
+                    if split_name == "val" and self.backdoor is not None:
+                        logging.info("Start backdoor evaluation")
+                        backdoor_results = self.eval_backdoor_epoch()
+                    else:
+                        backdoor_results = {}
                     
                     val_log = self.eval_epoch(
-                        split_name=split_name, cur_epoch=cur_epoch
+                        split_name=split_name, cur_epoch=cur_epoch, ASR=backdoor_results.get("ASR", None)
                     )
                     if val_log is not None:
                         if is_main_process():
@@ -448,10 +454,6 @@ class RunnerBase:
                 if not self.evaluate_only:
                     self._save_checkpoint(cur_epoch, is_best=False)
 
-            if self.backdoor is not None:
-                logging.info("Start backdoor evaluation")
-                results = self.eval_backdoor_epoch()
-                
             if self.evaluate_only:
                 break
 
@@ -526,7 +528,7 @@ class RunnerBase:
         
 
     @torch.no_grad()
-    def eval_epoch(self, split_name, cur_epoch, skip_reload=False):
+    def eval_epoch(self, split_name, cur_epoch, skip_reload=False, ASR=None):
         """
         Evaluate the model on a given split.
 
@@ -558,6 +560,7 @@ class RunnerBase:
                 val_result=results,
                 split_name=split_name,
                 epoch=cur_epoch,
+                ASR=ASR,
             )
 
     def unwrap_dist_model(self, model):
