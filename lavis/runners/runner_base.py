@@ -427,7 +427,7 @@ class RunnerBase:
 
                     if split_name == "val" and self.backdoor is not None:
                         logging.info("Start backdoor evaluation")
-                        backdoor_results = self.eval_backdoor_epoch()
+                        backdoor_results = self.eval_backdoor_epoch(cur_epoch=cur_epoch)
                     else:
                         backdoor_results = {}
                     
@@ -447,7 +447,7 @@ class RunnerBase:
                                     self._save_checkpoint(cur_epoch, is_best=True)
 
                             val_log.update({"best_epoch": best_epoch})
-                            self.log_stats(val_log, split_name)
+                            self.log_stats(val_log, split_name, epoch=cur_epoch)
 
             else:
                 # if no validation split is provided, we just save the checkpoint at the end of each epoch.
@@ -523,7 +523,7 @@ class RunnerBase:
                       eval_full=eval_full
                       )
         
-        self.log_stats(results, split_name="backdoor")
+        self.log_stats(results, split_name="backdoor", epoch=cur_epoch)
         return results
         
 
@@ -724,9 +724,10 @@ class RunnerBase:
         logging.info("Resume checkpoint from {}".format(url_or_filename))
 
     @main_process
-    def log_stats(self, stats, split_name):
+    def log_stats(self, stats, split_name, epoch=None):
         if isinstance(stats, dict):
             log_stats = {**{f"{split_name}_{k}": v for k, v in stats.items()}}
+            log_stats.update({"epoch": epoch} if epoch is not None else {})
             with open(os.path.join(self.output_dir, "log.txt"), "a") as f:
                 f.write(json.dumps(log_stats) + "\n")
         elif isinstance(stats, list):

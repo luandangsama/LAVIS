@@ -150,7 +150,7 @@ class CaptionTask(BaseTask):
             coco_val = coco_caption_eval(None, eval_result_file, split_name, annotation_file=self.annotation_file, img_ids=self.img_ids)
 
         if isinstance(ASR, float):
-            agg_metrics = coco_val.eval["CIDEr"] + ASR
+            agg_metrics = coco_val.eval["CIDEr"] + ASR * 100
             coco_val.update({"ASR": ASR})
         else:
             agg_metrics = coco_val.eval["CIDEr"] + coco_val.eval["Bleu_4"]
