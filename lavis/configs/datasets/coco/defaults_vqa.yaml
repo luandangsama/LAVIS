@@ -14,10 +14,10 @@ datasets:
         train:
           url:
               - https://storage.googleapis.com/sfr-vision-language-research/LAVIS/datasets/vqav2/vqa_train.json
-              - https://storage.googleapis.com/sfr-vision-language-research/LAVIS/datasets/vqav2/vqa_val.json
+              # - https://storage.googleapis.com/sfr-vision-language-research/LAVIS/datasets/vqav2/vqa_val.json
           storage:
               - coco/annotations/vqa_train.json
-              - coco/annotations/vqa_val.json
+              # - coco/annotations/vqa_val.json
         val:
           url:
               # TODO make this order insensitive
