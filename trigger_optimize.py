@@ -60,7 +60,49 @@ def parse_args():
     return args
 
 
-def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15, beta=1.):
+def get_random_non_overlapping_patches(image_shape=(224, 224), patch_size=1, num_patches=256):
+    H, W = image_shape
+    occupied = set()
+    patches = []
+
+    max_y = H - patch_size
+    max_x = W - patch_size
+
+    attempts = 0
+    max_attempts = 1000
+
+    while len(patches) < num_patches and attempts < max_attempts:
+        y = random.randint(0, max_y)
+        x = random.randint(0, max_x)
+
+        # Define patch coordinates
+        patch_coords = [(y+i, x+j) for i in range(patch_size) for j in range(patch_size)]
+
+        # Check for overlap
+        if any(coord in occupied for coord in patch_coords):
+            attempts += 1
+            continue
+
+        # If no overlap, add patch
+        patches.append((y, x))
+        occupied.update(patch_coords)
+
+    if len(patches) < num_patches:
+        raise RuntimeError("Couldn't find enough non-overlapping positions.")
+
+    return patches  # List of top-left (y, x) for each patch
+
+def create_mask(image_shape=224, patch_size=1, num_patches=256):
+    mask = np.zeros((1, 3, image_shape, image_shape), dtype=np.float32)
+    patches_locations = get_random_non_overlapping_patches(image_shape=(image_shape, image_shape), patch_size=patch_size, num_patches=num_patches)
+    print(patches_locations)
+    for (y, x) in patches_locations:
+        mask[:, :, y:y+patch_size, x:x+patch_size] = 1.0
+    
+    return torch.from_numpy(mask)
+
+
+def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15, beta=1., mask=None):
     imsize = img.shape[2:] ## 224, 224
     
     if patch_location == 'random':
@@ -83,15 +125,7 @@ def embed_patch(img, patch, patch_size, patch_location, num_patches=1, eps=0.15,
 
     elif patch_location == 'distributed':
         p = torch.clip(patch, 0.0, 1.0)
-        patch_size_vit = int(img.shape[2] // num_patches ** 0.5) ## 224 // 16 = 14
-        center_x_ids = [i + patch_size_vit//2 for i in range(0, imsize[0], patch_size_vit)]
-        center_y_ids = [i + patch_size_vit//2 for i in range(0, imsize[1], patch_size_vit)]
-        ## [7, 21, 35, 49, 63, 77, 91, 105, 119, 133, 147, 161, 175, 189, 203, 217]
-        for x_idx in center_x_ids:
-            for y_idx in center_y_ids:
-                backdoor_loc_h = x_idx - patch_size_vit//2
-                backdoor_loc_w = y_idx - patch_size_vit//2
-                img[:, :, backdoor_loc_h:backdoor_loc_h + patch_size_vit, backdoor_loc_w:backdoor_loc_w + patch_size_vit] = p
+        img = mask * p + (1 - mask) * img
 
     else:
         raise Exception(f'Not support patch_location {patch_location}')
@@ -139,12 +173,15 @@ def optimize_trigger(args):
     dataloader.num_batches = len(dataloader)
 
     ### Init trigger
+    mask = None
     if args.patch_location == 'distributed':
-        rand_patches = [np.random.normal(loc=0.5, scale=0.25, size=[args.batch_size, 3, args.patch_size, args.patch_size]) for _ in range(args.num_patches)]
-        rand_patches = [np.clip(rand_patch, 0, 1) for rand_patch in rand_patches]
-        patches = [Variable(torch.from_numpy(np.array([rand_patch]).astype(np.float32)), requires_grad=True) for rand_patch in rand_patches]
-        
-        optimizer = torch.optim.Adam(patches, lr=args.init_lr)
+        mask= create_mask(image_shape=224, patch_size=args.patch_size, num_patches=args.num_patches)
+        mask.to(args.device)
+        rand_patch = np.random.normal(loc=0.5, scale=0.25, size=[1, 3, 224, 224])
+        rand_patch = np.clip(rand_patch, 0, 1)
+        patches = Variable(torch.from_numpy(rand_patch.astype(np.float32)), requires_grad=True)
+        optimizer = torch.optim.Adam([patches], lr=args.init_lr)
+
     elif args.patch_location == 'invisible':
         rand_patch = np.random.normal(loc=0.5, scale=.25, size=[3, args.patch_size, args.patch_size])
         rand_patch = np.clip(rand_patch, 0, 1)
@@ -185,7 +222,7 @@ def optimize_trigger(args):
         for batch in tqdm(dataloader): 
             optimizer.zero_grad()
             batch['image_clean'] = batch['image'].clone()
-            batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps, args.beta)
+            batch['image'] = embed_patch(batch['image'], patches, args.patch_size, args.patch_location, args.num_patches, args.eps, args.beta, mask=mask)
             batch = prepare_sample(batch, cuda_enabled=True)
 
             with torch.cuda.amp.autocast(enabled=True):
@@ -212,12 +249,13 @@ def optimize_trigger(args):
         if (epoch + 1) % 10 == 0:
             ### Save result        
             if args.patch_location=='distributed':
-                for idx, patch in enumerate(patches):
-                    final = patch.squeeze(0)
-                    final = torch.clip(final, 0, 1) * 255
-                    final = np.array(final.data).astype(int)
-                    final = final.transpose(1, 2, 0)
-                    cv2.imwrite(os.path.join(output_path, f"patch_{idx}.png"), final)
+                final = patches.squeeze(0)
+                final = torch.clip(final, 0, 1) * 255
+                final = np.array(final.data).astype(int)
+                final = final.transpose(1, 2, 0)
+                cv2.imwrite(os.path.join(output_path, "patch.png"), final)
+                torch.save(mask, os.path.join(output_path, "mask.pt"))
+
             elif args.patch_location == 'invisible':
                 torch.save(patches, os.path.join(output_path, "patch.pt"))
             else:
