@@ -393,15 +393,15 @@ class RunnerBase:
         
         logging.info("Pre-Training evaluation")
 
-        # if len(self.valid_splits) > 0:
-        #     for split_name in self.valid_splits:
-        #         logging.info("Evaluating on {}.".format(split_name))
-        #         val_log = self.eval_epoch(
-        #                 split_name=split_name, cur_epoch=-1
-        #             )
-        #         if val_log is not None:
-        #             if is_main_process():
-        #                 self.log_stats(val_log, split_name)
+        if len(self.valid_splits) > 0:
+            for split_name in self.valid_splits:
+                logging.info("Evaluating on {}.".format(split_name))
+                val_log = self.eval_epoch(
+                        split_name=split_name, cur_epoch=-1
+                    )
+                if val_log is not None:
+                    if is_main_process():
+                        self.log_stats(val_log, split_name)
 
         if self.backdoor is not None:
                 logging.info("Start backdoor evaluation")
